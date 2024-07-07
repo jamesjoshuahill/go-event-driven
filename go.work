@@ -1,3 +1,6 @@
 go 1.22.5
 
-use ./02-async/01-goroutines
+use (
+	./02-async/01-goroutines
+	./project
+)
