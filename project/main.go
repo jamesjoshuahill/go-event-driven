@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,13 +23,16 @@ type TicketsConfirmationRequest struct {
 func main() {
 	log.Init(logrus.InfoLevel)
 
-	clients, err := clients.NewClients(os.Getenv("GATEWAY_ADDR"), nil)
+	c, err := clients.NewClients(os.Getenv("GATEWAY_ADDR"), nil)
 	if err != nil {
 		panic(err)
 	}
 
-	receiptsClient := NewReceiptsClient(clients)
-	spreadsheetsClient := NewSpreadsheetsClient(clients)
+	receiptsClient := NewReceiptsClient(c)
+	spreadsheetsClient := NewSpreadsheetsClient(c)
+
+	w := NewWorker(receiptsClient, spreadsheetsClient)
+	go w.Run()
 
 	e := commonHTTP.NewEcho()
 
@@ -40,15 +44,15 @@ func main() {
 		}
 
 		for _, ticket := range request.Tickets {
-			err = receiptsClient.IssueReceipt(c.Request().Context(), ticket)
-			if err != nil {
-				return err
-			}
+			w.Send(Message{
+				Task:     TaskIssueReceipt,
+				TicketID: ticket,
+			})
 
-			err = spreadsheetsClient.AppendRow(c.Request().Context(), "tickets-to-print", []string{ticket})
-			if err != nil {
-				return err
-			}
+			w.Send(Message{
+				Task:     TaskAppendToTracker,
+				TicketID: ticket,
+			})
 		}
 
 		return c.NoContent(http.StatusOK)
@@ -57,7 +61,7 @@ func main() {
 	logrus.Info("Server starting...")
 
 	err = e.Start(":8080")
-	if err != nil && err != http.ErrServerClosed {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		panic(err)
 	}
 }
@@ -112,4 +116,53 @@ func (c SpreadsheetsClient) AppendRow(ctx context.Context, spreadsheetName strin
 	}
 
 	return nil
+}
+
+type Task int
+
+const (
+	TaskIssueReceipt Task = iota
+	TaskAppendToTracker
+)
+
+type Message struct {
+	Task     Task
+	TicketID string
+}
+
+type Worker struct {
+	queue              chan Message
+	receiptsClient     ReceiptsClient
+	spreadsheetsClient SpreadsheetsClient
+}
+
+func NewWorker(r ReceiptsClient, s SpreadsheetsClient) *Worker {
+	return &Worker{
+		queue:              make(chan Message, 100),
+		receiptsClient:     r,
+		spreadsheetsClient: s,
+	}
+}
+
+func (w *Worker) Send(msg ...Message) {
+	for _, m := range msg {
+		w.queue <- m
+	}
+}
+
+func (w *Worker) Run() {
+	for msg := range w.queue {
+		switch msg.Task {
+		case TaskIssueReceipt:
+			err := w.receiptsClient.IssueReceipt(context.Background(), msg.TicketID)
+			if err != nil {
+				w.Send(msg)
+			}
+		case TaskAppendToTracker:
+			err := w.spreadsheetsClient.AppendRow(context.Background(), "tickets-to-print", []string{msg.TicketID})
+			if err != nil {
+				w.Send(msg)
+			}
+		}
+	}
 }
