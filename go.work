@@ -6,5 +6,6 @@ use (
 	./03-message-broker/03-subscribing
 	./03-message-broker/04-nack
 	./03-message-broker/05-consumer-groups
+	./04-router/01-handlers
 	./project
 )
