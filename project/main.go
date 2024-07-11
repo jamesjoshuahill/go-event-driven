@@ -12,8 +12,17 @@ import (
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients/spreadsheets"
 	commonHTTP "github.com/ThreeDotsLabs/go-event-driven/common/http"
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	TopicIssueReceipt    = "issue-receipt"
+	TopicAppendToTracker = "append-to-tracker"
 )
 
 type TicketsConfirmationRequest struct {
@@ -22,37 +31,101 @@ type TicketsConfirmationRequest struct {
 
 func main() {
 	log.Init(logrus.InfoLevel)
+	logger := watermill.NewStdLogger(false, false)
 
+	if err := run(logger); err != nil {
+		logger.Error("failed to run", err, nil)
+	}
+}
+
+func run(logger watermill.LoggerAdapter) error {
 	c, err := clients.NewClients(os.Getenv("GATEWAY_ADDR"), nil)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("creating gateway client: %w", err)
 	}
 
 	receiptsClient := NewReceiptsClient(c)
 	spreadsheetsClient := NewSpreadsheetsClient(c)
 
-	w := NewWorker(receiptsClient, spreadsheetsClient)
-	go w.Run()
+	rdb := redis.NewClient(&redis.Options{
+		Addr: os.Getenv("REDIS_ADDR"),
+	})
+
+	receiptsSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+		Client:        rdb,
+		ConsumerGroup: TopicIssueReceipt,
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("creating receipts subscriber: %w", err)
+	}
+
+	receiptsMessages, err := receiptsSub.Subscribe(context.Background(), TopicIssueReceipt)
+	if err != nil {
+		return fmt.Errorf("subscribing to topic '%s': %w", TopicIssueReceipt, err)
+	}
+	defer func() {
+		if err := receiptsSub.Close(); err != nil {
+			logger.Error("failed to close receipts subscriber", err, nil)
+		}
+	}()
+
+	go processReceipts(receiptsClient, receiptsMessages, logger)
+
+	trackerSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+		Client:        rdb,
+		ConsumerGroup: TopicAppendToTracker,
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("creating tracker subscriber: %w", err)
+	}
+	defer func() {
+		if err := trackerSub.Close(); err != nil {
+			logger.Error("failed to close tracker subscriber", err, nil)
+		}
+	}()
+
+	trackerMessages, err := trackerSub.Subscribe(context.Background(), TopicAppendToTracker)
+	if err != nil {
+		return fmt.Errorf("subscribing to topic '%s': %w", TopicAppendToTracker, err)
+	}
+
+	go processTracker(spreadsheetsClient, trackerMessages, logger)
+
+	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
+		Client: rdb,
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("creating publisher: %w", err)
+	}
 
 	e := commonHTTP.NewEcho()
 
 	e.POST("/tickets-confirmation", func(c echo.Context) error {
 		var request TicketsConfirmationRequest
-		err := c.Bind(&request)
-		if err != nil {
-			return err
+		if err := c.Bind(&request); err != nil {
+			return &echo.HTTPError{
+				Code:     http.StatusBadRequest,
+				Message:  "failed to parse request",
+				Internal: fmt.Errorf("failed to bind request: %w", err),
+			}
 		}
 
-		for _, ticket := range request.Tickets {
-			w.Send(Message{
-				Task:     TaskIssueReceipt,
-				TicketID: ticket,
-			})
+		for _, ticketID := range request.Tickets {
+			msg := message.NewMessage(watermill.NewUUID(), []byte(ticketID))
 
-			w.Send(Message{
-				Task:     TaskAppendToTracker,
-				TicketID: ticket,
-			})
+			if err := publisher.Publish(TopicIssueReceipt, msg); err != nil {
+				return &echo.HTTPError{
+					Message:  http.StatusText(http.StatusInternalServerError),
+					Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicIssueReceipt, err),
+				}
+			}
+
+			if err := publisher.Publish(TopicAppendToTracker, msg); err != nil {
+				return &echo.HTTPError{
+					Message:  http.StatusText(http.StatusInternalServerError),
+					Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicAppendToTracker, err),
+				}
+			}
 		}
 
 		return c.NoContent(http.StatusOK)
@@ -62,7 +135,34 @@ func main() {
 
 	err = e.Start(":8080")
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		panic(err)
+		return fmt.Errorf("starting http server: %w", err)
+	}
+
+	return nil
+}
+
+func processReceipts(client ReceiptsClient, messages <-chan *message.Message, logger watermill.LoggerAdapter) {
+	for msg := range messages {
+		ticketID := string(msg.Payload)
+		if err := client.IssueReceipt(msg.Context(), ticketID); err != nil {
+			logger.Error("failed to issue receipt: %w", err, nil)
+			msg.Nack()
+			continue
+		}
+
+		msg.Ack()
+	}
+}
+func processTracker(client SpreadsheetsClient, messages <-chan *message.Message, logger watermill.LoggerAdapter) {
+	for msg := range messages {
+		ticketID := string(msg.Payload)
+		if err := client.AppendRow(msg.Context(), "tickets-to-print", []string{ticketID}); err != nil {
+			logger.Error("failed to append row to tracker: %w", err, nil)
+			msg.Nack()
+			continue
+		}
+
+		msg.Ack()
 	}
 }
 
@@ -116,53 +216,4 @@ func (c SpreadsheetsClient) AppendRow(ctx context.Context, spreadsheetName strin
 	}
 
 	return nil
-}
-
-type Task int
-
-const (
-	TaskIssueReceipt Task = iota
-	TaskAppendToTracker
-)
-
-type Message struct {
-	Task     Task
-	TicketID string
-}
-
-type Worker struct {
-	queue              chan Message
-	receiptsClient     ReceiptsClient
-	spreadsheetsClient SpreadsheetsClient
-}
-
-func NewWorker(r ReceiptsClient, s SpreadsheetsClient) *Worker {
-	return &Worker{
-		queue:              make(chan Message, 100),
-		receiptsClient:     r,
-		spreadsheetsClient: s,
-	}
-}
-
-func (w *Worker) Send(msg ...Message) {
-	for _, m := range msg {
-		w.queue <- m
-	}
-}
-
-func (w *Worker) Run() {
-	for msg := range w.queue {
-		switch msg.Task {
-		case TaskIssueReceipt:
-			err := w.receiptsClient.IssueReceipt(context.Background(), msg.TicketID)
-			if err != nil {
-				w.Send(msg)
-			}
-		case TaskAppendToTracker:
-			err := w.spreadsheetsClient.AppendRow(context.Background(), "tickets-to-print", []string{msg.TicketID})
-			if err != nil {
-				w.Send(msg)
-			}
-		}
-	}
 }
