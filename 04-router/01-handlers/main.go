@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -36,6 +37,24 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	router.AddHandler(
+		"celsius-to-fahrenheit",
+		"temperature-celsius",
+		sub,
+		"temperature-fahrenheit",
+		pub,
+		func(msg *message.Message) ([]*message.Message, error) {
+			f, err := celsiusToFahrenheit(string(msg.Payload))
+			if err != nil {
+				return nil, fmt.Errorf("converting celsius to fahrenheit: %w", err)
+			}
+
+			fMsg := message.NewMessage(watermill.NewUUID(), message.Payload(f))
+
+			return []*message.Message{fMsg}, nil
+		},
+	)
 
 	err = router.Run(context.Background())
 	if err != nil {
