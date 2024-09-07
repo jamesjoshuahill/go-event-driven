@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"time"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients"
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients/receipts"
@@ -18,6 +20,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -88,13 +91,6 @@ func run(logger watermill.LoggerAdapter) error {
 	router.AddNoPublisherHandler("append-to-tracker", TopicAppendToTracker, trackerSub,
 		processTracker(spreadsheetsClient))
 
-	go func() {
-		err = router.Run(context.Background())
-		if err != nil {
-			panic(err)
-		}
-	}()
-
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: rdb,
 	}, logger)
@@ -135,12 +131,47 @@ func run(logger watermill.LoggerAdapter) error {
 		return c.NoContent(http.StatusOK)
 	})
 
-	logrus.Info("Server starting...")
+	sigCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
 
-	err = e.Start(":8080")
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("starting http server: %w", err)
+	g, runCtx := errgroup.WithContext(sigCtx)
+
+	g.Go(func() error {
+		if err := router.Run(runCtx); err != nil {
+			return fmt.Errorf("running messaging router: %w", err)
+		}
+
+		return nil
+	})
+
+	g.Go(func() error {
+		logrus.Info("Starting HTTP server...")
+		err = e.Start(":8080")
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("starting http server: %w", err)
+		}
+
+		return nil
+	})
+
+	g.Go(func() error {
+		<-runCtx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		logrus.Info("Shutting down HTTP server...")
+		if err := e.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutting down http server: %w", err)
+		}
+
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("waiting for shutdown: %w", err)
 	}
+	logrus.Info("Shutdown complete.")
 
 	return nil
 }
