@@ -58,18 +58,19 @@ func run(logger watermill.LoggerAdapter) error {
 	if err != nil {
 		return fmt.Errorf("creating receipts subscriber: %w", err)
 	}
-
-	receiptsMessages, err := receiptsSub.Subscribe(context.Background(), TopicIssueReceipt)
-	if err != nil {
-		return fmt.Errorf("subscribing to topic '%s': %w", TopicIssueReceipt, err)
-	}
 	defer func() {
 		if err := receiptsSub.Close(); err != nil {
 			logger.Error("failed to close receipts subscriber", err, nil)
 		}
 	}()
 
-	go processReceipts(receiptsClient, receiptsMessages, logger)
+	router, err := message.NewRouter(message.RouterConfig{}, logger)
+	if err != nil {
+		return fmt.Errorf("creating router: %w", err)
+	}
+
+	router.AddNoPublisherHandler("issue-receipt", TopicIssueReceipt, receiptsSub,
+		processReceipts(receiptsClient))
 
 	trackerSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
 		Client:        rdb,
@@ -84,12 +85,15 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 	}()
 
-	trackerMessages, err := trackerSub.Subscribe(context.Background(), TopicAppendToTracker)
-	if err != nil {
-		return fmt.Errorf("subscribing to topic '%s': %w", TopicAppendToTracker, err)
-	}
+	router.AddNoPublisherHandler("append-to-tracker", TopicAppendToTracker, trackerSub,
+		processTracker(spreadsheetsClient))
 
-	go processTracker(spreadsheetsClient, trackerMessages, logger)
+	go func() {
+		err = router.Run(context.Background())
+		if err != nil {
+			panic(err)
+		}
+	}()
 
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: rdb,
@@ -141,28 +145,25 @@ func run(logger watermill.LoggerAdapter) error {
 	return nil
 }
 
-func processReceipts(client ReceiptsClient, messages <-chan *message.Message, logger watermill.LoggerAdapter) {
-	for msg := range messages {
+func processReceipts(client ReceiptsClient) func(msg *message.Message) error {
+	return func(msg *message.Message) error {
 		ticketID := string(msg.Payload)
 		if err := client.IssueReceipt(msg.Context(), ticketID); err != nil {
-			logger.Error("failed to issue receipt: %w", err, nil)
-			msg.Nack()
-			continue
+			return fmt.Errorf("failed to issue receipt: %w", err)
 		}
 
-		msg.Ack()
+		return nil
 	}
 }
-func processTracker(client SpreadsheetsClient, messages <-chan *message.Message, logger watermill.LoggerAdapter) {
-	for msg := range messages {
+
+func processTracker(client SpreadsheetsClient) func(msg *message.Message) error {
+	return func(msg *message.Message) error {
 		ticketID := string(msg.Payload)
 		if err := client.AppendRow(msg.Context(), "tickets-to-print", []string{ticketID}); err != nil {
-			logger.Error("failed to append row to tracker: %w", err, nil)
-			msg.Nack()
-			continue
+			return fmt.Errorf("failed to append row to tracker: %w", err)
 		}
 
-		msg.Ack()
+		return nil
 	}
 }
 
