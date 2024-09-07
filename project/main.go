@@ -100,6 +100,10 @@ func run(logger watermill.LoggerAdapter) error {
 
 	e := commonHTTP.NewEcho()
 
+	e.GET("/health", func(c echo.Context) error {
+		return c.String(http.StatusOK, "ok")
+	})
+
 	e.POST("/tickets-confirmation", func(c echo.Context) error {
 		var request TicketsConfirmationRequest
 		if err := c.Bind(&request); err != nil {
@@ -145,6 +149,9 @@ func run(logger watermill.LoggerAdapter) error {
 	})
 
 	g.Go(func() error {
+		// Wait for router
+		<-router.Running()
+
 		logrus.Info("Starting HTTP server...")
 		err = e.Start(":8080")
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
