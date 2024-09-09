@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,8 +29,34 @@ const (
 	TopicAppendToTracker = "append-to-tracker"
 )
 
-type TicketsConfirmationRequest struct {
-	Tickets []string `json:"tickets"`
+type TicketsStatusRequest struct {
+	Tickets []Ticket `json:"tickets"`
+}
+
+type Ticket struct {
+	ID            string `json:"ticket_id"`
+	Status        string `json:"status"`
+	CustomerEmail string `json:"customer_email"`
+	Price         struct {
+		Amount   string `json:"amount"`
+		Currency string `json:"currency"`
+	} `json:"price"`
+}
+
+type IssueReceipt struct {
+	TicketID string `json:"ticket_id"`
+	Price    Price  `json:"price"`
+}
+
+type AppendToTracker struct {
+	TicketId      string `json:"ticket_id"`
+	CustomerEmail string `json:"customer_email"`
+	Price         Price  `json:"price"`
+}
+
+type Price struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
 }
 
 func main() {
@@ -73,7 +100,7 @@ func run(logger watermill.LoggerAdapter) error {
 	}
 
 	router.AddNoPublisherHandler("issue-receipt", TopicIssueReceipt, receiptsSub,
-		processReceipts(receiptsClient))
+		processIssueReceipt(receiptsClient))
 
 	trackerSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
 		Client:        rdb,
@@ -89,7 +116,7 @@ func run(logger watermill.LoggerAdapter) error {
 	}()
 
 	router.AddNoPublisherHandler("append-to-tracker", TopicAppendToTracker, trackerSub,
-		processTracker(spreadsheetsClient))
+		processAppendToTracker(spreadsheetsClient))
 
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: rdb,
@@ -104,8 +131,8 @@ func run(logger watermill.LoggerAdapter) error {
 		return c.String(http.StatusOK, "ok")
 	})
 
-	e.POST("/tickets-confirmation", func(c echo.Context) error {
-		var request TicketsConfirmationRequest
+	e.POST("/tickets-status", func(c echo.Context) error {
+		var request TicketsStatusRequest
 		if err := c.Bind(&request); err != nil {
 			return &echo.HTTPError{
 				Code:     http.StatusBadRequest,
@@ -114,21 +141,13 @@ func run(logger watermill.LoggerAdapter) error {
 			}
 		}
 
-		for _, ticketID := range request.Tickets {
-			msg := message.NewMessage(watermill.NewUUID(), []byte(ticketID))
-
-			if err := publisher.Publish(TopicIssueReceipt, msg); err != nil {
-				return &echo.HTTPError{
-					Message:  http.StatusText(http.StatusInternalServerError),
-					Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicIssueReceipt, err),
-				}
+		for _, ticket := range request.Tickets {
+			if err := publishIssueReceipt(publisher, ticket); err != nil {
+				return err
 			}
 
-			if err := publisher.Publish(TopicAppendToTracker, msg); err != nil {
-				return &echo.HTTPError{
-					Message:  http.StatusText(http.StatusInternalServerError),
-					Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicAppendToTracker, err),
-				}
+			if err := publishAppendToTracker(publisher, ticket); err != nil {
+				return err
 			}
 		}
 
@@ -183,10 +202,23 @@ func run(logger watermill.LoggerAdapter) error {
 	return nil
 }
 
-func processReceipts(client ReceiptsClient) func(msg *message.Message) error {
+func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		ticketID := string(msg.Payload)
-		if err := client.IssueReceipt(msg.Context(), ticketID); err != nil {
+		var body IssueReceipt
+		err := json.Unmarshal(msg.Payload, &body)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal payload: %w", err)
+		}
+
+		req := IssueReceiptRequest{
+			TicketID: body.TicketID,
+			Price: receipts.Money{
+				MoneyAmount:   body.Price.Amount,
+				MoneyCurrency: body.Price.Currency,
+			},
+		}
+
+		if err := client.IssueReceipt(msg.Context(), req); err != nil {
 			return fmt.Errorf("failed to issue receipt: %w", err)
 		}
 
@@ -194,15 +226,85 @@ func processReceipts(client ReceiptsClient) func(msg *message.Message) error {
 	}
 }
 
-func processTracker(client SpreadsheetsClient) func(msg *message.Message) error {
+func processAppendToTracker(client SpreadsheetsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		ticketID := string(msg.Payload)
-		if err := client.AppendRow(msg.Context(), "tickets-to-print", []string{ticketID}); err != nil {
+		var body AppendToTracker
+		err := json.Unmarshal(msg.Payload, &body)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal payload: %w", err)
+		}
+
+		row := []string{body.TicketId, body.CustomerEmail, body.Price.Amount, body.Price.Currency}
+		if err := client.AppendRow(msg.Context(), "tickets-to-print", row); err != nil {
 			return fmt.Errorf("failed to append row to tracker: %w", err)
 		}
 
 		return nil
 	}
+}
+
+func publishIssueReceipt(publisher message.Publisher, ticket Ticket) error {
+	body := IssueReceipt{
+		TicketID: ticket.ID,
+		Price: Price{
+			Amount:   ticket.Price.Amount,
+			Currency: ticket.Price.Currency,
+		},
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("failed to marshal issue receipt body: %w", err),
+		}
+	}
+
+	msg := message.NewMessage(watermill.NewUUID(), payload)
+
+	if err := publisher.Publish(TopicIssueReceipt, msg); err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicIssueReceipt, err),
+		}
+	}
+
+	return nil
+}
+
+func publishAppendToTracker(publisher message.Publisher, ticket Ticket) error {
+	body := AppendToTracker{
+		TicketId:      ticket.ID,
+		CustomerEmail: ticket.CustomerEmail,
+		Price: Price{
+			Amount:   ticket.Price.Amount,
+			Currency: ticket.Price.Currency,
+		},
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("failed to marshal append to tracker body: %w", err),
+		}
+	}
+
+	msg := message.NewMessage(watermill.NewUUID(), payload)
+
+	if err := publisher.Publish(TopicAppendToTracker, msg); err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicAppendToTracker, err),
+		}
+	}
+
+	return nil
+}
+
+type IssueReceiptRequest struct {
+	TicketID string
+	Price    receipts.Money
 }
 
 type ReceiptsClient struct {
@@ -215,9 +317,13 @@ func NewReceiptsClient(clients *clients.Clients) ReceiptsClient {
 	}
 }
 
-func (c ReceiptsClient) IssueReceipt(ctx context.Context, ticketID string) error {
+func (c ReceiptsClient) IssueReceipt(ctx context.Context, request IssueReceiptRequest) error {
 	body := receipts.PutReceiptsJSONRequestBody{
-		TicketId: ticketID,
+		TicketId: request.TicketID,
+		Price: receipts.Money{
+			MoneyAmount:   request.Price.MoneyAmount,
+			MoneyCurrency: request.Price.MoneyCurrency,
+		},
 	}
 
 	receiptsResp, err := c.clients.Receipts.PutReceiptsWithResponse(ctx, body)
