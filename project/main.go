@@ -106,6 +106,8 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating router: %w", err)
 	}
 
+	router.AddMiddleware(MessageLoggerMiddleware)
+
 	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
 
@@ -224,6 +226,13 @@ func run(logger watermill.LoggerAdapter) error {
 	logrus.Info("Shutdown complete.")
 
 	return nil
+}
+
+func MessageLoggerMiddleware(next message.HandlerFunc) message.HandlerFunc {
+	return func(msg *message.Message) ([]*message.Message, error) {
+		logrus.WithField("message_uuid", msg.UUID).Info("Handling a message")
+		return next(msg)
+	}
 }
 
 func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
