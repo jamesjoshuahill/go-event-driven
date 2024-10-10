@@ -26,13 +26,23 @@ import (
 
 const (
 	TopicTicketBookingConfirmed = "TicketBookingConfirmed"
+	TopicTicketBookingCanceled  = "TicketBookingCanceled"
+	StatusConfirmed             = "confirmed"
+	StatusCanceled              = "canceled"
 )
 
-type TicketBookingConfirmedEvent struct {
+type TicketBookingConfirmed struct {
 	Header        EventHeader `json:"header"`
 	TicketID      string      `json:"ticket_id"`
 	CustomerEmail string      `json:"customer_email"`
-	Price         Price       `json:"price"`
+	Price         Money       `json:"price"`
+}
+
+type TicketBookingCanceled struct {
+	Header        EventHeader `json:"header"`
+	TicketID      string      `json:"ticket_id"`
+	CustomerEmail string      `json:"customer_email"`
+	Price         Money       `json:"price"`
 }
 
 type EventHeader struct {
@@ -48,10 +58,10 @@ type Ticket struct {
 	ID            string `json:"ticket_id"`
 	Status        string `json:"status"`
 	CustomerEmail string `json:"customer_email"`
-	Price         Price  `json:"price"`
+	Price         Money  `json:"price"`
 }
 
-type Price struct {
+type Money struct {
 	Amount   string `json:"amount"`
 	Currency string `json:"currency"`
 }
@@ -99,21 +109,37 @@ func run(logger watermill.LoggerAdapter) error {
 	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
 
-	trackerSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+	trackerConfirmedSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
 		Client:        rdb,
-		ConsumerGroup: "append-to-tracker",
+		ConsumerGroup: "append-to-tracker-confirmed",
 	}, logger)
 	if err != nil {
-		return fmt.Errorf("creating tracker subscriber: %w", err)
+		return fmt.Errorf("creating tracker confirmed subscriber: %w", err)
 	}
 	defer func() {
-		if err := trackerSub.Close(); err != nil {
-			logger.Error("failed to close tracker subscriber", err, nil)
+		if err := trackerConfirmedSub.Close(); err != nil {
+			logger.Error("failed to close tracker confirmed subscriber", err, nil)
 		}
 	}()
 
-	router.AddNoPublisherHandler("append-to-tracker", TopicTicketBookingConfirmed, trackerSub,
-		processAppendToTracker(spreadsheetsClient))
+	router.AddNoPublisherHandler("append-to-tracker-confirmed", TopicTicketBookingConfirmed, trackerConfirmedSub,
+		processAppendToTrackerConfirmed(spreadsheetsClient))
+
+	trackerCanceledSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+		Client:        rdb,
+		ConsumerGroup: "append-to-tracker-canceled",
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("creating tracker canceled subscriber: %w", err)
+	}
+	defer func() {
+		if err := trackerCanceledSub.Close(); err != nil {
+			logger.Error("failed to close tracker canceled subscriber", err, nil)
+		}
+	}()
+
+	router.AddNoPublisherHandler("append-to-tracker-canceled", TopicTicketBookingCanceled, trackerCanceledSub,
+		processAppendToTrackerCanceled(spreadsheetsClient))
 
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: rdb,
@@ -139,7 +165,12 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 
 		for _, ticket := range request.Tickets {
-			if err := publishTicketBookingConfirmed(publisher, ticket); err != nil {
+			publishFunc := publishTicketBookingConfirmed
+			if ticket.Status == StatusCanceled {
+				publishFunc = publishTicketBookingCanceled
+			}
+
+			if err := publishFunc(publisher, ticket); err != nil {
 				return err
 			}
 		}
@@ -197,7 +228,7 @@ func run(logger watermill.LoggerAdapter) error {
 
 func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body TicketBookingConfirmedEvent
+		var body TicketBookingConfirmed
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -219,9 +250,9 @@ func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error
 	}
 }
 
-func processAppendToTracker(client SpreadsheetsClient) func(msg *message.Message) error {
+func processAppendToTrackerConfirmed(client SpreadsheetsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body TicketBookingConfirmedEvent
+		var body TicketBookingConfirmed
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -236,15 +267,32 @@ func processAppendToTracker(client SpreadsheetsClient) func(msg *message.Message
 	}
 }
 
+func processAppendToTrackerCanceled(client SpreadsheetsClient) func(msg *message.Message) error {
+	return func(msg *message.Message) error {
+		var body TicketBookingCanceled
+		err := json.Unmarshal(msg.Payload, &body)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal payload: %w", err)
+		}
+
+		row := []string{body.TicketID, body.CustomerEmail, body.Price.Amount, body.Price.Currency}
+		if err := client.AppendRow(msg.Context(), "tickets-to-refund", row); err != nil {
+			return fmt.Errorf("failed to append row to tracker: %w", err)
+		}
+
+		return nil
+	}
+}
+
 func publishTicketBookingConfirmed(publisher message.Publisher, ticket Ticket) error {
-	body := TicketBookingConfirmedEvent{
+	body := TicketBookingConfirmed{
 		Header: EventHeader{
 			ID:          watermill.NewUUID(),
 			PublishedAt: time.Now().UTC(),
 		},
 		TicketID:      ticket.ID,
 		CustomerEmail: ticket.CustomerEmail,
-		Price: Price{
+		Price: Money{
 			Amount:   ticket.Price.Amount,
 			Currency: ticket.Price.Currency,
 		},
@@ -264,6 +312,40 @@ func publishTicketBookingConfirmed(publisher message.Publisher, ticket Ticket) e
 		return &echo.HTTPError{
 			Message:  http.StatusText(http.StatusInternalServerError),
 			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingConfirmed, err),
+		}
+	}
+
+	return nil
+}
+
+func publishTicketBookingCanceled(publisher message.Publisher, ticket Ticket) error {
+	body := TicketBookingCanceled{
+		Header: EventHeader{
+			ID:          watermill.NewUUID(),
+			PublishedAt: time.Now().UTC(),
+		},
+		TicketID:      ticket.ID,
+		CustomerEmail: ticket.CustomerEmail,
+		Price: Money{
+			Amount:   ticket.Price.Amount,
+			Currency: ticket.Price.Currency,
+		},
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("failed to marshal body: %w", err),
+		}
+	}
+
+	msg := message.NewMessage(body.Header.ID, payload)
+
+	if err := publisher.Publish(TopicTicketBookingCanceled, msg); err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingCanceled, err),
 		}
 	}
 
