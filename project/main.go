@@ -25,9 +25,20 @@ import (
 )
 
 const (
-	TopicIssueReceipt    = "issue-receipt"
-	TopicAppendToTracker = "append-to-tracker"
+	TopicTicketBookingConfirmed = "TicketBookingConfirmed"
 )
+
+type TicketBookingConfirmedEvent struct {
+	Header        EventHeader `json:"header"`
+	TicketID      string      `json:"ticket_id"`
+	CustomerEmail string      `json:"customer_email"`
+	Price         Price       `json:"price"`
+}
+
+type EventHeader struct {
+	ID          string    `json:"id"`
+	PublishedAt time.Time `json:"published_at"`
+}
 
 type TicketsStatusRequest struct {
 	Tickets []Ticket `json:"tickets"`
@@ -36,20 +47,6 @@ type TicketsStatusRequest struct {
 type Ticket struct {
 	ID            string `json:"ticket_id"`
 	Status        string `json:"status"`
-	CustomerEmail string `json:"customer_email"`
-	Price         struct {
-		Amount   string `json:"amount"`
-		Currency string `json:"currency"`
-	} `json:"price"`
-}
-
-type IssueReceipt struct {
-	TicketID string `json:"ticket_id"`
-	Price    Price  `json:"price"`
-}
-
-type AppendToTracker struct {
-	TicketId      string `json:"ticket_id"`
 	CustomerEmail string `json:"customer_email"`
 	Price         Price  `json:"price"`
 }
@@ -83,7 +80,7 @@ func run(logger watermill.LoggerAdapter) error {
 
 	receiptsSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
 		Client:        rdb,
-		ConsumerGroup: TopicIssueReceipt,
+		ConsumerGroup: "issue-receipt",
 	}, logger)
 	if err != nil {
 		return fmt.Errorf("creating receipts subscriber: %w", err)
@@ -99,12 +96,12 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating router: %w", err)
 	}
 
-	router.AddNoPublisherHandler("issue-receipt", TopicIssueReceipt, receiptsSub,
+	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
 
 	trackerSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
 		Client:        rdb,
-		ConsumerGroup: TopicAppendToTracker,
+		ConsumerGroup: "append-to-tracker",
 	}, logger)
 	if err != nil {
 		return fmt.Errorf("creating tracker subscriber: %w", err)
@@ -115,7 +112,7 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 	}()
 
-	router.AddNoPublisherHandler("append-to-tracker", TopicAppendToTracker, trackerSub,
+	router.AddNoPublisherHandler("append-to-tracker", TopicTicketBookingConfirmed, trackerSub,
 		processAppendToTracker(spreadsheetsClient))
 
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
@@ -142,11 +139,7 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 
 		for _, ticket := range request.Tickets {
-			if err := publishIssueReceipt(publisher, ticket); err != nil {
-				return err
-			}
-
-			if err := publishAppendToTracker(publisher, ticket); err != nil {
+			if err := publishTicketBookingConfirmed(publisher, ticket); err != nil {
 				return err
 			}
 		}
@@ -204,7 +197,7 @@ func run(logger watermill.LoggerAdapter) error {
 
 func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body IssueReceipt
+		var body TicketBookingConfirmedEvent
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -228,13 +221,13 @@ func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error
 
 func processAppendToTracker(client SpreadsheetsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body AppendToTracker
+		var body TicketBookingConfirmedEvent
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
 		}
 
-		row := []string{body.TicketId, body.CustomerEmail, body.Price.Amount, body.Price.Currency}
+		row := []string{body.TicketID, body.CustomerEmail, body.Price.Amount, body.Price.Currency}
 		if err := client.AppendRow(msg.Context(), "tickets-to-print", row); err != nil {
 			return fmt.Errorf("failed to append row to tracker: %w", err)
 		}
@@ -243,38 +236,13 @@ func processAppendToTracker(client SpreadsheetsClient) func(msg *message.Message
 	}
 }
 
-func publishIssueReceipt(publisher message.Publisher, ticket Ticket) error {
-	body := IssueReceipt{
-		TicketID: ticket.ID,
-		Price: Price{
-			Amount:   ticket.Price.Amount,
-			Currency: ticket.Price.Currency,
+func publishTicketBookingConfirmed(publisher message.Publisher, ticket Ticket) error {
+	body := TicketBookingConfirmedEvent{
+		Header: EventHeader{
+			ID:          watermill.NewUUID(),
+			PublishedAt: time.Now().UTC(),
 		},
-	}
-
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("failed to marshal issue receipt body: %w", err),
-		}
-	}
-
-	msg := message.NewMessage(watermill.NewUUID(), payload)
-
-	if err := publisher.Publish(TopicIssueReceipt, msg); err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicIssueReceipt, err),
-		}
-	}
-
-	return nil
-}
-
-func publishAppendToTracker(publisher message.Publisher, ticket Ticket) error {
-	body := AppendToTracker{
-		TicketId:      ticket.ID,
+		TicketID:      ticket.ID,
 		CustomerEmail: ticket.CustomerEmail,
 		Price: Price{
 			Amount:   ticket.Price.Amount,
@@ -286,16 +254,16 @@ func publishAppendToTracker(publisher message.Publisher, ticket Ticket) error {
 	if err != nil {
 		return &echo.HTTPError{
 			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("failed to marshal append to tracker body: %w", err),
+			Internal: fmt.Errorf("failed to marshal body: %w", err),
 		}
 	}
 
-	msg := message.NewMessage(watermill.NewUUID(), payload)
+	msg := message.NewMessage(body.Header.ID, payload)
 
-	if err := publisher.Publish(TopicAppendToTracker, msg); err != nil {
+	if err := publisher.Publish(TopicTicketBookingConfirmed, msg); err != nil {
 		return &echo.HTTPError{
 			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicAppendToTracker, err),
+			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingConfirmed, err),
 		}
 	}
 
