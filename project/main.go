@@ -18,7 +18,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/labstack/echo/v4"
+	"github.com/lithammer/shortuuid/v3"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -76,7 +78,10 @@ func main() {
 }
 
 func run(logger watermill.LoggerAdapter) error {
-	c, err := clients.NewClients(os.Getenv("GATEWAY_ADDR"), nil)
+	c, err := clients.NewClients(os.Getenv("GATEWAY_ADDR"), func(ctx context.Context, req *http.Request) error {
+		req.Header.Set("Correlation-ID", log.CorrelationIDFromContext(ctx))
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("creating gateway client: %w", err)
 	}
@@ -107,6 +112,7 @@ func run(logger watermill.LoggerAdapter) error {
 	}
 
 	router.AddMiddleware(MessageLoggerMiddleware)
+	router.AddMiddleware(MessageCorrelationIDMiddleware)
 
 	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
@@ -167,12 +173,17 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 
 		for _, ticket := range request.Tickets {
+			correlationID := c.Request().Header.Get("Correlation-ID")
+			if correlationID == "" {
+				correlationID = "gen_" + shortuuid.New()
+			}
+
 			publishFunc := publishTicketBookingConfirmed
 			if ticket.Status == StatusCanceled {
 				publishFunc = publishTicketBookingCanceled
 			}
 
-			if err := publishFunc(publisher, ticket); err != nil {
+			if err := publishFunc(correlationID, publisher, ticket); err != nil {
 				return err
 			}
 		}
@@ -235,6 +246,19 @@ func MessageLoggerMiddleware(next message.HandlerFunc) message.HandlerFunc {
 	}
 }
 
+func MessageCorrelationIDMiddleware(next message.HandlerFunc) message.HandlerFunc {
+	return func(msg *message.Message) ([]*message.Message, error) {
+		correlationID := middleware.MessageCorrelationID(msg)
+		if correlationID == "" {
+			correlationID = "gen_" + shortuuid.New()
+		}
+
+		ctx := log.ContextWithCorrelationID(msg.Context(), correlationID)
+		msg.SetContext(ctx)
+		return next(msg)
+	}
+}
+
 func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
 		var body TicketBookingConfirmed
@@ -293,7 +317,7 @@ func processAppendToTrackerCanceled(client SpreadsheetsClient) func(msg *message
 	}
 }
 
-func publishTicketBookingConfirmed(publisher message.Publisher, ticket Ticket) error {
+func publishTicketBookingConfirmed(correlationID string, publisher message.Publisher, ticket Ticket) error {
 	body := TicketBookingConfirmed{
 		Header: EventHeader{
 			ID:          watermill.NewUUID(),
@@ -316,6 +340,7 @@ func publishTicketBookingConfirmed(publisher message.Publisher, ticket Ticket) e
 	}
 
 	msg := message.NewMessage(body.Header.ID, payload)
+	middleware.SetCorrelationID(correlationID, msg)
 
 	if err := publisher.Publish(TopicTicketBookingConfirmed, msg); err != nil {
 		return &echo.HTTPError{
@@ -327,7 +352,7 @@ func publishTicketBookingConfirmed(publisher message.Publisher, ticket Ticket) e
 	return nil
 }
 
-func publishTicketBookingCanceled(publisher message.Publisher, ticket Ticket) error {
+func publishTicketBookingCanceled(correlationID string, publisher message.Publisher, ticket Ticket) error {
 	body := TicketBookingCanceled{
 		Header: EventHeader{
 			ID:          watermill.NewUUID(),
@@ -350,6 +375,7 @@ func publishTicketBookingCanceled(publisher message.Publisher, ticket Ticket) er
 	}
 
 	msg := message.NewMessage(body.Header.ID, payload)
+	middleware.SetCorrelationID(correlationID, msg)
 
 	if err := publisher.Publish(TopicTicketBookingCanceled, msg); err != nil {
 		return &echo.HTTPError{
