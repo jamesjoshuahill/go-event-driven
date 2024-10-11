@@ -114,6 +114,13 @@ func run(logger watermill.LoggerAdapter) error {
 	router.AddMiddleware(CorrelationIDMiddleware)
 	router.AddMiddleware(LoggerMiddleware)
 	router.AddMiddleware(HandlerLogMiddleware)
+	router.AddMiddleware(middleware.Retry{
+		MaxRetries:      10,
+		InitialInterval: time.Millisecond * 100,
+		MaxInterval:     time.Second,
+		Multiplier:      2,
+		Logger:          logger,
+	}.Middleware)
 
 	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
