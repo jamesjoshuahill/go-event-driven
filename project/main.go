@@ -3,70 +3,31 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
+	"tickets/event"
+	libHTTP "tickets/http"
+	"tickets/service"
 	"time"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients"
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients/receipts"
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients/spreadsheets"
-	commonHTTP "github.com/ThreeDotsLabs/go-event-driven/common/http"
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
-	"github.com/labstack/echo/v4"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
 	TopicTicketBookingConfirmed = "TicketBookingConfirmed"
 	TopicTicketBookingCanceled  = "TicketBookingCanceled"
-	StatusConfirmed             = "confirmed"
-	StatusCanceled              = "canceled"
 )
-
-type TicketBookingConfirmed struct {
-	Header        EventHeader `json:"header"`
-	TicketID      string      `json:"ticket_id"`
-	CustomerEmail string      `json:"customer_email"`
-	Price         Money       `json:"price"`
-}
-
-type TicketBookingCanceled struct {
-	Header        EventHeader `json:"header"`
-	TicketID      string      `json:"ticket_id"`
-	CustomerEmail string      `json:"customer_email"`
-	Price         Money       `json:"price"`
-}
-
-type EventHeader struct {
-	ID          string    `json:"id"`
-	PublishedAt time.Time `json:"published_at"`
-}
-
-type TicketsStatusRequest struct {
-	Tickets []Ticket `json:"tickets"`
-}
-
-type Ticket struct {
-	ID            string `json:"ticket_id"`
-	Status        string `json:"status"`
-	CustomerEmail string `json:"customer_email"`
-	Price         Money  `json:"price"`
-}
-
-type Money struct {
-	Amount   string `json:"amount"`
-	Currency string `json:"currency"`
-}
 
 func main() {
 	log.Init(logrus.InfoLevel)
@@ -165,87 +126,9 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating publisher: %w", err)
 	}
 
-	e := commonHTTP.NewEcho()
+	httpRouter := libHTTP.NewRouter(publisher)
 
-	e.GET("/health", func(c echo.Context) error {
-		return c.String(http.StatusOK, "ok")
-	})
-
-	e.POST("/tickets-status", func(c echo.Context) error {
-		var request TicketsStatusRequest
-		if err := c.Bind(&request); err != nil {
-			return &echo.HTTPError{
-				Code:     http.StatusBadRequest,
-				Message:  "failed to parse request",
-				Internal: fmt.Errorf("failed to bind request: %w", err),
-			}
-		}
-
-		for _, ticket := range request.Tickets {
-			correlationID := c.Request().Header.Get("Correlation-ID")
-			if correlationID == "" {
-				correlationID = "gen_" + shortuuid.New()
-			}
-
-			publishFunc := publishTicketBookingConfirmed
-			if ticket.Status == StatusCanceled {
-				publishFunc = publishTicketBookingCanceled
-			}
-
-			if err := publishFunc(correlationID, publisher, ticket); err != nil {
-				return err
-			}
-		}
-
-		return c.NoContent(http.StatusOK)
-	})
-
-	sigCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
-	g, runCtx := errgroup.WithContext(sigCtx)
-
-	g.Go(func() error {
-		if err := router.Run(runCtx); err != nil {
-			return fmt.Errorf("running messaging router: %w", err)
-		}
-
-		return nil
-	})
-
-	g.Go(func() error {
-		// Wait for router
-		<-router.Running()
-
-		logrus.Info("Starting HTTP server...")
-		err = e.Start(":8080")
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("starting http server: %w", err)
-		}
-
-		return nil
-	})
-
-	g.Go(func() error {
-		<-runCtx.Done()
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		logrus.Info("Shutting down HTTP server...")
-		if err := e.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutting down http server: %w", err)
-		}
-
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return fmt.Errorf("waiting for shutdown: %w", err)
-	}
-	logrus.Info("Shutdown complete.")
-
-	return nil
+	return service.Run(router, httpRouter)
 }
 
 func CorrelationIDMiddleware(next message.HandlerFunc) message.HandlerFunc {
@@ -310,7 +193,7 @@ func SkipInvalidEventsMiddleware(next message.HandlerFunc) message.HandlerFunc {
 
 func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body TicketBookingConfirmed
+		var body event.TicketBookingConfirmed
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -339,7 +222,7 @@ func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error
 
 func processAppendToTrackerConfirmed(client SpreadsheetsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body TicketBookingConfirmed
+		var body event.TicketBookingConfirmed
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -361,7 +244,7 @@ func processAppendToTrackerConfirmed(client SpreadsheetsClient) func(msg *messag
 
 func processAppendToTrackerCanceled(client SpreadsheetsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
-		var body TicketBookingCanceled
+		var body event.TicketBookingCanceled
 		err := json.Unmarshal(msg.Payload, &body)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -374,78 +257,6 @@ func processAppendToTrackerCanceled(client SpreadsheetsClient) func(msg *message
 
 		return nil
 	}
-}
-
-func publishTicketBookingConfirmed(correlationID string, publisher message.Publisher, ticket Ticket) error {
-	body := TicketBookingConfirmed{
-		Header: EventHeader{
-			ID:          watermill.NewUUID(),
-			PublishedAt: time.Now().UTC(),
-		},
-		TicketID:      ticket.ID,
-		CustomerEmail: ticket.CustomerEmail,
-		Price: Money{
-			Amount:   ticket.Price.Amount,
-			Currency: ticket.Price.Currency,
-		},
-	}
-
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("failed to marshal body: %w", err),
-		}
-	}
-
-	msg := message.NewMessage(body.Header.ID, payload)
-	middleware.SetCorrelationID(correlationID, msg)
-	msg.Metadata.Set("type", "TicketBookingConfirmed")
-
-	if err := publisher.Publish(TopicTicketBookingConfirmed, msg); err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingConfirmed, err),
-		}
-	}
-
-	return nil
-}
-
-func publishTicketBookingCanceled(correlationID string, publisher message.Publisher, ticket Ticket) error {
-	body := TicketBookingCanceled{
-		Header: EventHeader{
-			ID:          watermill.NewUUID(),
-			PublishedAt: time.Now().UTC(),
-		},
-		TicketID:      ticket.ID,
-		CustomerEmail: ticket.CustomerEmail,
-		Price: Money{
-			Amount:   ticket.Price.Amount,
-			Currency: ticket.Price.Currency,
-		},
-	}
-
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("failed to marshal body: %w", err),
-		}
-	}
-
-	msg := message.NewMessage(body.Header.ID, payload)
-	middleware.SetCorrelationID(correlationID, msg)
-	msg.Metadata.Set("type", "TicketBookingCanceled")
-
-	if err := publisher.Publish(TopicTicketBookingCanceled, msg); err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingCanceled, err),
-		}
-	}
-
-	return nil
 }
 
 type IssueReceiptRequest struct {
