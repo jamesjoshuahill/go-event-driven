@@ -271,7 +271,13 @@ func HandlerLogMiddleware(next message.HandlerFunc) message.HandlerFunc {
 		logger := log.FromContext(msg.Context())
 		logger.Info("Handling a message")
 
-		return next(msg)
+		msgs, err := next(msg)
+
+		if err != nil {
+			logger.WithError(err).Error("Message handling error")
+		}
+
+		return msgs, err
 	}
 }
 
@@ -292,7 +298,7 @@ func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error
 		}
 
 		if err := client.IssueReceipt(msg.Context(), req); err != nil {
-			return fmt.Errorf("failed to issue receipt: %w", err)
+			return err
 		}
 
 		return nil
