@@ -316,11 +316,16 @@ func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
 		}
 
+		currency := body.Price.Currency
+		if currency == "" {
+			currency = "USD"
+		}
+
 		req := IssueReceiptRequest{
 			TicketID: body.TicketID,
 			Price: receipts.Money{
 				MoneyAmount:   body.Price.Amount,
-				MoneyCurrency: body.Price.Currency,
+				MoneyCurrency: currency,
 			},
 		}
 
@@ -340,7 +345,12 @@ func processAppendToTrackerConfirmed(client SpreadsheetsClient) func(msg *messag
 			return fmt.Errorf("failed to unmarshal payload: %w", err)
 		}
 
-		row := []string{body.TicketID, body.CustomerEmail, body.Price.Amount, body.Price.Currency}
+		currency := body.Price.Currency
+		if currency == "" {
+			currency = "USD"
+		}
+
+		row := []string{body.TicketID, body.CustomerEmail, body.Price.Amount, currency}
 		if err := client.AppendRow(msg.Context(), "tickets-to-print", row); err != nil {
 			return fmt.Errorf("failed to append row to tracker: %w", err)
 		}
