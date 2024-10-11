@@ -121,6 +121,7 @@ func run(logger watermill.LoggerAdapter) error {
 		Multiplier:      2,
 		Logger:          logger,
 	}.Middleware)
+	router.AddMiddleware(SkipInvalidEventsMiddleware)
 
 	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
@@ -288,6 +289,25 @@ func HandlerLogMiddleware(next message.HandlerFunc) message.HandlerFunc {
 	}
 }
 
+func SkipInvalidEventsMiddleware(next message.HandlerFunc) message.HandlerFunc {
+	return func(msg *message.Message) ([]*message.Message, error) {
+		logger := log.FromContext(msg.Context())
+
+		msgType := msg.Metadata.Get("type")
+		if msgType == "" {
+			logger.Info("Skipping message with no type")
+			return nil, nil
+		}
+
+		if msg.UUID == "2beaf5bc-d5e4-4653-b075-2b36bbf28949" {
+			logger.Info("Skipping message with uuid 2beaf5bc-d5e4-4653-b075-2b36bbf28949")
+			return nil, nil
+		}
+
+		return next(msg)
+	}
+}
+
 func processIssueReceipt(client ReceiptsClient) func(msg *message.Message) error {
 	return func(msg *message.Message) error {
 		var body TicketBookingConfirmed
@@ -370,6 +390,7 @@ func publishTicketBookingConfirmed(correlationID string, publisher message.Publi
 
 	msg := message.NewMessage(body.Header.ID, payload)
 	middleware.SetCorrelationID(correlationID, msg)
+	msg.Metadata.Set("type", "TicketBookingConfirmed")
 
 	if err := publisher.Publish(TopicTicketBookingConfirmed, msg); err != nil {
 		return &echo.HTTPError{
@@ -405,6 +426,7 @@ func publishTicketBookingCanceled(correlationID string, publisher message.Publis
 
 	msg := message.NewMessage(body.Header.ID, payload)
 	middleware.SetCorrelationID(correlationID, msg)
+	msg.Metadata.Set("type", "TicketBookingCanceled")
 
 	if err := publisher.Publish(TopicTicketBookingCanceled, msg); err != nil {
 		return &echo.HTTPError{
