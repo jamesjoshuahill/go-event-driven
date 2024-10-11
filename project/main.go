@@ -111,8 +111,9 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating router: %w", err)
 	}
 
-	router.AddMiddleware(MessageLoggerMiddleware)
-	router.AddMiddleware(MessageCorrelationIDMiddleware)
+	router.AddMiddleware(CorrelationIDMiddleware)
+	router.AddMiddleware(LoggerMiddleware)
+	router.AddMiddleware(HandlerLogMiddleware)
 
 	router.AddNoPublisherHandler("issue-receipt", TopicTicketBookingConfirmed, receiptsSub,
 		processIssueReceipt(receiptsClient))
@@ -239,14 +240,7 @@ func run(logger watermill.LoggerAdapter) error {
 	return nil
 }
 
-func MessageLoggerMiddleware(next message.HandlerFunc) message.HandlerFunc {
-	return func(msg *message.Message) ([]*message.Message, error) {
-		logrus.WithField("message_uuid", msg.UUID).Info("Handling a message")
-		return next(msg)
-	}
-}
-
-func MessageCorrelationIDMiddleware(next message.HandlerFunc) message.HandlerFunc {
+func CorrelationIDMiddleware(next message.HandlerFunc) message.HandlerFunc {
 	return func(msg *message.Message) ([]*message.Message, error) {
 		correlationID := middleware.MessageCorrelationID(msg)
 		if correlationID == "" {
@@ -255,6 +249,28 @@ func MessageCorrelationIDMiddleware(next message.HandlerFunc) message.HandlerFun
 
 		ctx := log.ContextWithCorrelationID(msg.Context(), correlationID)
 		msg.SetContext(ctx)
+
+		return next(msg)
+	}
+}
+
+func LoggerMiddleware(next message.HandlerFunc) message.HandlerFunc {
+	return func(msg *message.Message) ([]*message.Message, error) {
+		correlationID := log.CorrelationIDFromContext(msg.Context())
+		ctx := log.ToContext(msg.Context(), logrus.WithFields(logrus.Fields{
+			"message_uuid":   msg.UUID,
+			"correlation_id": correlationID}))
+		msg.SetContext(ctx)
+
+		return next(msg)
+	}
+}
+
+func HandlerLogMiddleware(next message.HandlerFunc) message.HandlerFunc {
+	return func(msg *message.Message) ([]*message.Message, error) {
+		logger := log.FromContext(msg.Context())
+		logger.Info("Handling a message")
+
 		return next(msg)
 	}
 }
