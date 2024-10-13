@@ -1,33 +1,36 @@
 package http
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"tickets/entity"
 	"tickets/event"
+	"tickets/message"
 
-	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/labstack/echo/v4"
 	"github.com/lithammer/shortuuid/v3"
 )
 
-const (
-	TopicTicketBookingConfirmed = "TicketBookingConfirmed"
-	TopicTicketBookingCanceled  = "TicketBookingCanceled"
-)
+const headerKeyCorrelationID = "Correlation-ID"
 
-type TicketsStatusRequest struct {
-	Tickets []entity.Ticket `json:"tickets"`
+type ticketsStatusRequest struct {
+	Tickets []ticketStatus `json:"tickets"`
 }
 
-type handler struct {
-	publisher message.Publisher
+type ticketStatus struct {
+	ID            string `json:"ticket_id"`
+	Status        string `json:"status"`
+	CustomerEmail string `json:"customer_email"`
+	Price         money  `json:"price"`
+}
+
+type money struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
 }
 
 func (h handler) PostTicketStatus(c echo.Context) error {
-	var request TicketsStatusRequest
+	var request ticketsStatusRequest
 	if err := c.Bind(&request); err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusBadRequest,
@@ -36,87 +39,57 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 		}
 	}
 
-	for _, ticket := range request.Tickets {
-		correlationID := c.Request().Header.Get("Correlation-ID")
+	for _, ticketStatus := range request.Tickets {
+		correlationID := c.Request().Header.Get(headerKeyCorrelationID)
 		if correlationID == "" {
 			correlationID = "gen_" + shortuuid.New()
 		}
 
-		publishFunc := publishTicketBookingConfirmed
-		if ticket.Status == entity.StatusCanceled {
-			publishFunc = publishTicketBookingCanceled
+		ticket := entity.Ticket{
+			ID:            ticketStatus.ID,
+			Status:        ticketStatus.Status,
+			CustomerEmail: ticketStatus.CustomerEmail,
+			Price: entity.Money{
+				Amount:   ticketStatus.Price.Amount,
+				Currency: ticketStatus.Price.Currency,
+			},
 		}
 
-		if err := publishFunc(correlationID, h.publisher, ticket); err != nil {
-			return err
+		switch ticket.Status {
+		case entity.StatusConfirmed:
+			msg, err := message.NewTicketBookingConfirmed(ticket, correlationID)
+			if err != nil {
+				return &echo.HTTPError{
+					Message:  http.StatusText(http.StatusInternalServerError),
+					Internal: fmt.Errorf("creating event: %w", err),
+				}
+			}
+
+			topic := event.TopicTicketBookingConfirmed
+			if err := h.publisher.Publish(topic, msg); err != nil {
+				return &echo.HTTPError{
+					Message:  http.StatusText(http.StatusInternalServerError),
+					Internal: fmt.Errorf("publishing message to topic '%s': %w", topic, err),
+				}
+			}
+		case entity.StatusCanceled:
+			msg, err := message.NewTicketBookingCanceled(ticket, correlationID)
+			if err != nil {
+				return &echo.HTTPError{
+					Message:  http.StatusText(http.StatusInternalServerError),
+					Internal: fmt.Errorf("creating event: %w", err),
+				}
+			}
+
+			topic := event.TopicTicketBookingCanceled
+			if err := h.publisher.Publish(topic, msg); err != nil {
+				return &echo.HTTPError{
+					Message:  http.StatusText(http.StatusInternalServerError),
+					Internal: fmt.Errorf("publishing message to topic '%s': %w", topic, err),
+				}
+			}
 		}
 	}
 
 	return c.NoContent(http.StatusOK)
-}
-
-func publishTicketBookingConfirmed(correlationID string, publisher message.Publisher, ticket entity.Ticket) error {
-	body := event.TicketBookingConfirmed{
-		Header:        event.NewHeader(),
-		TicketID:      ticket.ID,
-		CustomerEmail: ticket.CustomerEmail,
-		Price: entity.Money{
-			Amount:   ticket.Price.Amount,
-			Currency: ticket.Price.Currency,
-		},
-	}
-
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("failed to marshal body: %w", err),
-		}
-	}
-
-	msg := message.NewMessage(body.Header.ID, payload)
-	middleware.SetCorrelationID(correlationID, msg)
-	msg.Metadata.Set("type", "TicketBookingConfirmed")
-
-	if err := publisher.Publish(TopicTicketBookingConfirmed, msg); err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingConfirmed, err),
-		}
-	}
-
-	return nil
-}
-
-func publishTicketBookingCanceled(correlationID string, publisher message.Publisher, ticket entity.Ticket) error {
-	body := event.TicketBookingCanceled{
-		Header:        event.NewHeader(),
-		TicketID:      ticket.ID,
-		CustomerEmail: ticket.CustomerEmail,
-		Price: entity.Money{
-			Amount:   ticket.Price.Amount,
-			Currency: ticket.Price.Currency,
-		},
-	}
-
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("failed to marshal body: %w", err),
-		}
-	}
-
-	msg := message.NewMessage(body.Header.ID, payload)
-	middleware.SetCorrelationID(correlationID, msg)
-	msg.Metadata.Set("type", "TicketBookingCanceled")
-
-	if err := publisher.Publish(TopicTicketBookingCanceled, msg); err != nil {
-		return &echo.HTTPError{
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing message to topic '%s': %w", TopicTicketBookingCanceled, err),
-		}
-	}
-
-	return nil
 }

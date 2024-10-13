@@ -8,6 +8,10 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+type handler struct {
+	publisher message.Publisher
+}
+
 func NewRouter(publisher message.Publisher) *echo.Echo {
 	server := commonHTTP.NewEcho()
 

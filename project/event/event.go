@@ -7,6 +7,11 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 )
 
+const (
+	TopicTicketBookingConfirmed = "TicketBookingConfirmed"
+	TopicTicketBookingCanceled  = "TicketBookingCanceled"
+)
+
 type Header struct {
 	ID          string
 	PublishedAt time.Time
@@ -26,9 +31,17 @@ type TicketBookingConfirmed struct {
 	Price         entity.Money `json:"price"`
 }
 
+func (e TicketBookingConfirmed) Type() string {
+	return "TicketBookingConfirmed"
+}
+
 type TicketBookingCanceled struct {
 	Header        Header       `json:"header"`
 	TicketID      string       `json:"ticket_id"`
 	CustomerEmail string       `json:"customer_email"`
 	Price         entity.Money `json:"price"`
+}
+
+func (e TicketBookingCanceled) Type() string {
+	return "TicketBookingCanceled"
 }
