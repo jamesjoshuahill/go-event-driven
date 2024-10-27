@@ -138,3 +138,38 @@ func assertTicketToPrintRowForTicketAppended(t *testing.T, spreadsheetAppender *
 	assert.Equal(t, ticket.Price.Amount, req.row[2])
 	assert.Equal(t, ticket.Price.Currency, req.row[3])
 }
+
+func assertTicketToRefundRowForTicketAppended(t *testing.T, spreadsheetAppender *MockSpreadsheetAppender, ticket TicketStatus) {
+	assert.EventuallyWithT(
+		t,
+		func(collectT *assert.CollectT) {
+			rowsAppended := len(spreadsheetAppender.RowsAppended)
+			t.Log("rows appended", rowsAppended)
+
+			assert.Greater(collectT, rowsAppended, 0, "no rows appended")
+		},
+		10*time.Second,
+		100*time.Millisecond,
+	)
+
+	var req AppendRowRequest
+	var ok bool
+	for _, rowAppended := range spreadsheetAppender.RowsAppended {
+		if rowAppended.spreadsheetName != "tickets-to-refund" {
+			continue
+		}
+		if len(rowAppended.row) == 0 || rowAppended.row[0] != ticket.TicketID {
+			continue
+		}
+		req = rowAppended
+		ok = true
+		break
+	}
+	require.Truef(t, ok, "row for ticket %s not found", ticket.TicketID)
+
+	assert.Len(t, req.row, 4)
+	assert.Equal(t, ticket.TicketID, req.row[0])
+	assert.Equal(t, ticket.CustomerEmail, req.row[1])
+	assert.Equal(t, ticket.Price.Amount, req.row[2])
+	assert.Equal(t, ticket.Price.Currency, req.row[3])
+}

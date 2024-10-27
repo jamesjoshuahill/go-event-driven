@@ -8,6 +8,7 @@ import (
 	"tickets/message"
 	"time"
 
+	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/labstack/echo/v4"
@@ -33,13 +34,14 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("creating publisher: %w", err)
 	}
+	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
 
 	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender)
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	httpRouter := http.NewRouter(publisher)
+	httpRouter := http.NewRouter(decoratedPublisher)
 
 	return &Service{
 		msgRouter:  msgRouter,

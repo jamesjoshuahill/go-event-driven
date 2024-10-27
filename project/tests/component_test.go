@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestComponent_ConfirmedTicket(t *testing.T) {
+func TestComponent(t *testing.T) {
 	logger := watermill.NewStdLogger(false, false)
 	rdb := redis.NewClient(&redis.Options{
 		Addr: os.Getenv("REDIS_ADDR"),
@@ -31,25 +31,48 @@ func TestComponent_ConfirmedTicket(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.NoError(t, svc.Run(ctx))
+
 	}()
 
-	ticket := TicketStatus{
-		TicketID:      "some ticket id",
-		Status:        "confirmed",
-		CustomerEmail: "someone@example.com",
-		Price: Money{
-			Amount:   "42",
-			Currency: "GBP",
-		},
-	}
-	req := TicketsStatusRequest{
-		Tickets: []TicketStatus{
-			ticket,
-		},
-	}
-
 	waitForHttpServer(t)
-	sendTicketsStatus(t, req)
-	assertReceiptForTicketIssued(t, receiptIssuer, ticket)
-	assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
+	t.Run("confimed ticket", func(t *testing.T) {
+		ticket := TicketStatus{
+			TicketID:      "some ticket id",
+			Status:        "confirmed",
+			CustomerEmail: "someone@example.com",
+			Price: Money{
+				Amount:   "42",
+				Currency: "GBP",
+			},
+		}
+		req := TicketsStatusRequest{
+			Tickets: []TicketStatus{
+				ticket,
+			},
+		}
+
+		sendTicketsStatus(t, req)
+		assertReceiptForTicketIssued(t, receiptIssuer, ticket)
+		assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
+	})
+
+	t.Run("canceled ticket", func(t *testing.T) {
+		ticket := TicketStatus{
+			TicketID:      "some ticket id",
+			Status:        "canceled",
+			CustomerEmail: "someone@example.com",
+			Price: Money{
+				Amount:   "42",
+				Currency: "GBP",
+			},
+		}
+		req := TicketsStatusRequest{
+			Tickets: []TicketStatus{
+				ticket,
+			},
+		}
+
+		sendTicketsStatus(t, req)
+		assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
+	})
 }
