@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestComponent(t *testing.T) {
+func TestComponent_ConfirmedTicket(t *testing.T) {
 	logger := watermill.NewStdLogger(false, false)
 	rdb := redis.NewClient(&redis.Options{
 		Addr: os.Getenv("REDIS_ADDR"),
@@ -33,5 +33,23 @@ func TestComponent(t *testing.T) {
 		assert.NoError(t, svc.Run(ctx))
 	}()
 
+	ticket := TicketStatus{
+		TicketID:      "some ticket id",
+		Status:        "confirmed",
+		CustomerEmail: "someone@example.com",
+		Price: Money{
+			Amount:   "42",
+			Currency: "GBP",
+		},
+	}
+	req := TicketsStatusRequest{
+		Tickets: []TicketStatus{
+			ticket,
+		},
+	}
+
 	waitForHttpServer(t)
+	sendTicketsStatus(t, req)
+	assertReceiptForTicketIssued(t, receiptIssuer, ticket)
+	assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
 }
