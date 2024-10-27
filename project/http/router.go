@@ -8,6 +8,8 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var ErrServerClosed = http.ErrServerClosed
+
 type handler struct {
 	publisher message.Publisher
 }

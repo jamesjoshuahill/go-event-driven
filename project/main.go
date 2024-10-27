@@ -1,16 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"tickets/clients"
-	"tickets/http"
-	"tickets/message"
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -42,58 +41,13 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 	}()
 
-	receiptsSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
-		Client:        rdb,
-		ConsumerGroup: "issue-receipt",
-	}, logger)
-	if err != nil {
-		return fmt.Errorf("creating receipts subscriber: %w", err)
-	}
-	defer func() {
-		if err := receiptsSub.Close(); err != nil {
-			logger.Error("failed to close receipts subscriber", err, nil)
-		}
-	}()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
 
-	trackerConfirmedSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
-		Client:        rdb,
-		ConsumerGroup: "append-to-tracker-confirmed",
-	}, logger)
+	svc, err := service.New(logger, rdb, receiptsClient, spreadsheetsClient)
 	if err != nil {
-		return fmt.Errorf("creating tracker confirmed subscriber: %w", err)
-	}
-	defer func() {
-		if err := trackerConfirmedSub.Close(); err != nil {
-			logger.Error("failed to close tracker confirmed subscriber", err, nil)
-		}
-	}()
-
-	trackerCanceledSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
-		Client:        rdb,
-		ConsumerGroup: "append-to-tracker-canceled",
-	}, logger)
-	if err != nil {
-		return fmt.Errorf("creating tracker canceled subscriber: %w", err)
-	}
-	defer func() {
-		if err := trackerCanceledSub.Close(); err != nil {
-			logger.Error("failed to close tracker canceled subscriber", err, nil)
-		}
-	}()
-
-	msgRouter, err := message.NewRouter(logger, receiptsSub, trackerConfirmedSub, trackerCanceledSub, receiptsClient, spreadsheetsClient)
-	if err != nil {
-		return fmt.Errorf("creating message router: %w", err)
+		return fmt.Errorf("creating service: %w", err)
 	}
 
-	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
-		Client: rdb,
-	}, logger)
-	if err != nil {
-		return fmt.Errorf("creating publisher: %w", err)
-	}
-
-	httpRouter := http.NewRouter(publisher)
-
-	return service.Run(msgRouter, httpRouter)
+	return svc.Run(ctx)
 }

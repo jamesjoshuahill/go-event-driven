@@ -6,18 +6,61 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
+	"github.com/redis/go-redis/v9"
 )
+
+type Router struct {
+	*message.Router
+}
 
 func NewRouter(
 	logger watermill.LoggerAdapter,
-	receiptsSub message.Subscriber,
-	trackerConfirmedSub message.Subscriber,
-	trackerCanceledSub message.Subscriber,
+	rdb *redis.Client,
 	receiptIssuer ReceiptIssuer,
 	spreadsheetAppender SpreadsheetAppender,
-) (*message.Router, error) {
+) (*Router, error) {
+	receiptsSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+		Client:        rdb,
+		ConsumerGroup: "issue-receipt",
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("creating receipts subscriber: %w", err)
+	}
+	// defer func() {
+	// 	if err := receiptsSub.Close(); err != nil {
+	// 		logger.Error("failed to close receipts subscriber", err, nil)
+	// 	}
+	// }()
+
+	trackerConfirmedSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+		Client:        rdb,
+		ConsumerGroup: "append-to-tracker-confirmed",
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("creating tracker confirmed subscriber: %w", err)
+	}
+	// defer func() {
+	// 	if err := trackerConfirmedSub.Close(); err != nil {
+	// 		logger.Error("failed to close tracker confirmed subscriber", err, nil)
+	// 	}
+	// }()
+
+	trackerCanceledSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
+		Client:        rdb,
+		ConsumerGroup: "append-to-tracker-canceled",
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("creating tracker canceled subscriber: %w", err)
+	}
+	// defer func() {
+	// 	if err := trackerCanceledSub.Close(); err != nil {
+	// 		logger.Error("failed to close tracker canceled subscriber", err, nil)
+	// 	}
+	// }()
+
 	router, err := message.NewRouter(message.RouterConfig{}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating router: %w", err)
@@ -53,5 +96,5 @@ func NewRouter(
 		trackerCanceledSub,
 		handleAppendToTrackerCanceled(spreadsheetAppender))
 
-	return router, nil
+	return &Router{router}, nil
 }

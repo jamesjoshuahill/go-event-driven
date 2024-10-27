@@ -4,25 +4,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
-	"os/signal"
+	"tickets/http"
+	"tickets/message"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
 
-func Run(msgRouter *message.Router, httpRouter *echo.Echo) error {
-	sigCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
+type Service struct {
+	msgRouter  *message.Router
+	httpRouter *echo.Echo
+}
 
-	g, runCtx := errgroup.WithContext(sigCtx)
+func New(
+	logger watermill.LoggerAdapter,
+	redisClient *redis.Client,
+	receiptIssuer message.ReceiptIssuer,
+	spreadsheetAppender message.SpreadsheetAppender,
+) (*Service, error) {
+	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
+		Client: redisClient,
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("creating publisher: %w", err)
+	}
+
+	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender)
+	if err != nil {
+		return nil, fmt.Errorf("creating message router: %w", err)
+	}
+
+	httpRouter := http.NewRouter(publisher)
+
+	return &Service{
+		msgRouter:  msgRouter,
+		httpRouter: httpRouter,
+	}, nil
+}
+
+func (s Service) Run(ctx context.Context) error {
+	g, runCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		if err := msgRouter.Run(runCtx); err != nil {
+		if err := s.msgRouter.Run(runCtx); err != nil {
 			return fmt.Errorf("running messaging router: %w", err)
 		}
 
@@ -30,11 +59,11 @@ func Run(msgRouter *message.Router, httpRouter *echo.Echo) error {
 	})
 
 	g.Go(func() error {
-		// Wait for router
-		<-msgRouter.Running()
+		// Wait for message router
+		<-s.msgRouter.Running()
 
 		logrus.Info("Starting HTTP server...")
-		err := httpRouter.Start(":8080")
+		err := s.httpRouter.Start(":8080")
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("starting http server: %w", err)
 		}
@@ -49,7 +78,7 @@ func Run(msgRouter *message.Router, httpRouter *echo.Echo) error {
 		defer cancel()
 
 		logrus.Info("Shutting down HTTP server...")
-		if err := httpRouter.Shutdown(shutdownCtx); err != nil {
+		if err := s.httpRouter.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutting down http server: %w", err)
 		}
 
