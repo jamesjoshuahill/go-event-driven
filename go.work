@@ -12,5 +12,6 @@ use (
 	./05-events/03-headers
 	./06-middlewares/01-add-middleware
 	./08-component-testing/03-writing-mocks
+	./09-cqrs-events/01-event-bus
 	./project
 )

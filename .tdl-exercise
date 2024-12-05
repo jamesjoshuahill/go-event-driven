@@ -1,3 +1,3 @@
-exercise_id = "24235ec4-b151-4914-8303-5fa5f15efa69"
-directory = "project"
+exercise_id = "4c908a02-a3e9-4a20-ad09-20a511c1c912"
+directory = "09-cqrs-events/01-event-bus"
 is_text_only = false
