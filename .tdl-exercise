@@ -1,3 +1,3 @@
-exercise_id = "9d36a050-953c-4127-87f4-fb8a3ff7ddcf"
-directory = "09-cqrs-events/05-event-handler"
+exercise_id = "ac1ac7f5-a5b0-45ba-90d3-82064d61a241"
+directory = "09-cqrs-events/06-cqrs-with-consumer-groups"
 is_text_only = false
