@@ -53,12 +53,6 @@ func skipInvalidEventsMiddleware(next message.HandlerFunc) message.HandlerFunc {
 	return func(msg *message.Message) ([]*message.Message, error) {
 		logger := log.FromContext(msg.Context())
 
-		msgType := msg.Metadata.Get("type")
-		if msgType == "" {
-			logger.Info("Skipping message with no type")
-			return nil, nil
-		}
-
 		if msg.UUID == "2beaf5bc-d5e4-4653-b075-2b36bbf28949" {
 			logger.Info("Skipping message with uuid 2beaf5bc-d5e4-4653-b075-2b36bbf28949")
 			return nil, nil

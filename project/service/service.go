@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
+	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -36,12 +37,24 @@ func New(
 	}
 	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
 
+	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
+		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
+			return params.EventName, nil
+		},
+		Marshaler: cqrs.JSONMarshaler{
+			GenerateName: cqrs.StructName,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating event bus: %w", err)
+	}
+
 	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender)
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	httpRouter := http.NewRouter(decoratedPublisher)
+	httpRouter := http.NewRouter(eventBus)
 
 	return &Service{
 		msgRouter:  msgRouter,

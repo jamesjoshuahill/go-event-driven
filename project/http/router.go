@@ -4,17 +4,12 @@ import (
 	"net/http"
 
 	commonHTTP "github.com/ThreeDotsLabs/go-event-driven/common/http"
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/labstack/echo/v4"
 )
 
 var ErrServerClosed = http.ErrServerClosed
 
-type handler struct {
-	publisher message.Publisher
-}
-
-func NewRouter(publisher message.Publisher) *echo.Echo {
+func NewRouter(publisher Publisher) *echo.Echo {
 	server := commonHTTP.NewEcho()
 
 	server.GET("/health", func(c echo.Context) error {

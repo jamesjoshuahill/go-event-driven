@@ -2,11 +2,11 @@ package message
 
 import (
 	"fmt"
-	"tickets/event"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
+	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/redis/go-redis/v9"
@@ -22,45 +22,6 @@ func NewRouter(
 	receiptIssuer ReceiptIssuer,
 	spreadsheetAppender SpreadsheetAppender,
 ) (*Router, error) {
-	receiptsSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
-		Client:        rdb,
-		ConsumerGroup: "issue-receipt",
-	}, logger)
-	if err != nil {
-		return nil, fmt.Errorf("creating receipts subscriber: %w", err)
-	}
-	// defer func() {
-	// 	if err := receiptsSub.Close(); err != nil {
-	// 		logger.Error("failed to close receipts subscriber", err, nil)
-	// 	}
-	// }()
-
-	trackerConfirmedSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
-		Client:        rdb,
-		ConsumerGroup: "append-to-tracker-confirmed",
-	}, logger)
-	if err != nil {
-		return nil, fmt.Errorf("creating tracker confirmed subscriber: %w", err)
-	}
-	// defer func() {
-	// 	if err := trackerConfirmedSub.Close(); err != nil {
-	// 		logger.Error("failed to close tracker confirmed subscriber", err, nil)
-	// 	}
-	// }()
-
-	trackerCanceledSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
-		Client:        rdb,
-		ConsumerGroup: "append-to-tracker-canceled",
-	}, logger)
-	if err != nil {
-		return nil, fmt.Errorf("creating tracker canceled subscriber: %w", err)
-	}
-	// defer func() {
-	// 	if err := trackerCanceledSub.Close(); err != nil {
-	// 		logger.Error("failed to close tracker canceled subscriber", err, nil)
-	// 	}
-	// }()
-
 	router, err := message.NewRouter(message.RouterConfig{}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating router: %w", err)
@@ -78,23 +39,34 @@ func NewRouter(
 	}.Middleware)
 	router.AddMiddleware(skipInvalidEventsMiddleware)
 
-	router.AddNoPublisherHandler(
-		"issue-receipt",
-		event.TopicTicketBookingConfirmed,
-		receiptsSub,
-		handleIssueReceipt(receiptIssuer))
+	config := cqrs.EventProcessorConfig{
+		SubscriberConstructor: func(params cqrs.EventProcessorSubscriberConstructorParams) (message.Subscriber, error) {
+			return redisstream.NewSubscriber(redisstream.SubscriberConfig{
+				Client:        rdb,
+				ConsumerGroup: "svc-users." + params.HandlerName,
+			}, logger)
+		},
+		GenerateSubscribeTopic: func(params cqrs.EventProcessorGenerateSubscribeTopicParams) (string, error) {
+			return params.EventName, nil
+		},
+		Marshaler: cqrs.JSONMarshaler{
+			GenerateName: cqrs.StructName,
+		},
+		Logger: logger,
+	}
 
-	router.AddNoPublisherHandler(
-		"append-to-tracker-confirmed",
-		event.TopicTicketBookingConfirmed,
-		trackerConfirmedSub,
-		handleAppendToTrackerConfirmed(spreadsheetAppender))
+	ep, err := cqrs.NewEventProcessorWithConfig(router, config)
+	if err != nil {
+		return nil, fmt.Errorf("creating event processor: %w", err)
+	}
 
-	router.AddNoPublisherHandler(
-		"append-to-tracker-canceled",
-		event.TopicTicketBookingCanceled,
-		trackerCanceledSub,
-		handleAppendToTrackerCanceled(spreadsheetAppender))
+	handlers := []cqrs.EventHandler{
+		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(receiptIssuer)),
+		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(spreadsheetAppender)),
+		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(spreadsheetAppender)),
+	}
+
+	ep.AddHandlers(handlers...)
 
 	return &Router{router}, nil
 }

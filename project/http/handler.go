@@ -1,17 +1,14 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"tickets/entity"
 	"tickets/event"
-	"tickets/message"
 
 	"github.com/labstack/echo/v4"
-	"github.com/lithammer/shortuuid/v3"
 )
-
-const headerKeyCorrelationID = "Correlation-ID"
 
 type ticketsStatusRequest struct {
 	Tickets []ticketStatus `json:"tickets"`
@@ -29,6 +26,14 @@ type money struct {
 	Currency string `json:"currency"`
 }
 
+type Publisher interface {
+	Publish(ctx context.Context, event any) error
+}
+
+type handler struct {
+	publisher Publisher
+}
+
 func (h handler) PostTicketStatus(c echo.Context) error {
 	var request ticketsStatusRequest
 	if err := c.Bind(&request); err != nil {
@@ -40,11 +45,6 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 	}
 
 	for _, ticketStatus := range request.Tickets {
-		correlationID := c.Request().Header.Get(headerKeyCorrelationID)
-		if correlationID == "" {
-			correlationID = "gen_" + shortuuid.New()
-		}
-
 		ticket := entity.Ticket{
 			ID:            ticketStatus.ID,
 			Status:        ticketStatus.Status,
@@ -55,38 +55,18 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 			},
 		}
 
+		var e any
 		switch ticket.Status {
 		case entity.StatusConfirmed:
-			msg, err := message.NewTicketBookingConfirmed(ticket, correlationID)
-			if err != nil {
-				return &echo.HTTPError{
-					Message:  http.StatusText(http.StatusInternalServerError),
-					Internal: fmt.Errorf("creating event: %w", err),
-				}
-			}
-
-			topic := event.TopicTicketBookingConfirmed
-			if err := h.publisher.Publish(topic, msg); err != nil {
-				return &echo.HTTPError{
-					Message:  http.StatusText(http.StatusInternalServerError),
-					Internal: fmt.Errorf("publishing message to topic '%s': %w", topic, err),
-				}
-			}
+			e = event.NewTicketBookingConfirmed(ticket)
 		case entity.StatusCanceled:
-			msg, err := message.NewTicketBookingCanceled(ticket, correlationID)
-			if err != nil {
-				return &echo.HTTPError{
-					Message:  http.StatusText(http.StatusInternalServerError),
-					Internal: fmt.Errorf("creating event: %w", err),
-				}
-			}
+			e = event.NewTicketBookingCanceled(ticket)
+		}
 
-			topic := event.TopicTicketBookingCanceled
-			if err := h.publisher.Publish(topic, msg); err != nil {
-				return &echo.HTTPError{
-					Message:  http.StatusText(http.StatusInternalServerError),
-					Internal: fmt.Errorf("publishing message to topic '%s': %w", topic, err),
-				}
+		if err := h.publisher.Publish(c.Request().Context(), e); err != nil {
+			return &echo.HTTPError{
+				Message:  http.StatusText(http.StatusInternalServerError),
+				Internal: fmt.Errorf("publishing event: %w", err),
 			}
 		}
 	}

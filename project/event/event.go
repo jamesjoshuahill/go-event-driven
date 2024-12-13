@@ -7,41 +7,52 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 )
 
-const (
-	TopicTicketBookingConfirmed = "TicketBookingConfirmed"
-	TopicTicketBookingCanceled  = "TicketBookingCanceled"
-)
-
-type Header struct {
+type header struct {
 	ID          string
 	PublishedAt time.Time
 }
 
-func NewHeader() Header {
-	return Header{
+func newHeader() header {
+	return header{
 		ID:          watermill.NewUUID(),
 		PublishedAt: time.Now().UTC(),
 	}
 }
 
 type TicketBookingConfirmed struct {
-	Header        Header       `json:"header"`
+	Header        header       `json:"header"`
 	TicketID      string       `json:"ticket_id"`
 	CustomerEmail string       `json:"customer_email"`
 	Price         entity.Money `json:"price"`
 }
 
-func (e TicketBookingConfirmed) Type() string {
-	return "TicketBookingConfirmed"
+func NewTicketBookingConfirmed(ticket entity.Ticket) TicketBookingConfirmed {
+	return TicketBookingConfirmed{
+		Header:        newHeader(),
+		TicketID:      ticket.ID,
+		CustomerEmail: ticket.CustomerEmail,
+		Price: entity.Money{
+			Amount:   ticket.Price.Amount,
+			Currency: ticket.Price.Currency,
+		},
+	}
 }
 
 type TicketBookingCanceled struct {
-	Header        Header       `json:"header"`
+	Header        header       `json:"header"`
 	TicketID      string       `json:"ticket_id"`
 	CustomerEmail string       `json:"customer_email"`
 	Price         entity.Money `json:"price"`
 }
 
-func (e TicketBookingCanceled) Type() string {
-	return "TicketBookingCanceled"
+func NewTicketBookingCanceled(ticket entity.Ticket) TicketBookingCanceled {
+	return TicketBookingCanceled{
+		Header:        newHeader(),
+		TicketID:      ticket.ID,
+		CustomerEmail: ticket.CustomerEmail,
+		Price: entity.Money{
+			Amount:   ticket.Price.Amount,
+			Currency: ticket.Price.Currency,
+		},
+	}
 }

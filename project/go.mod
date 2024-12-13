@@ -3,11 +3,11 @@ module tickets
 go 1.21
 
 require (
-	github.com/ThreeDotsLabs/go-event-driven v0.0.12
+	github.com/ThreeDotsLabs/go-event-driven v0.0.13
 	github.com/ThreeDotsLabs/watermill v1.3.2
 	github.com/ThreeDotsLabs/watermill-redisstream v1.3.0
 	github.com/labstack/echo/v4 v4.10.2
-	github.com/redis/go-redis/v9 v9.5.3
+	github.com/redis/go-redis/v9 v9.6.0
 	github.com/sirupsen/logrus v1.9.0
 )
 
