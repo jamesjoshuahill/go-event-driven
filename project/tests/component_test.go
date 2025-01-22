@@ -4,11 +4,15 @@ import (
 	"context"
 	"os"
 	"testing"
+	"tickets/postgres"
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/watermill"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestComponent(t *testing.T) {
@@ -20,6 +24,14 @@ func TestComponent(t *testing.T) {
 		assert.NoError(t, rdb.Conn().Close())
 	})
 
+	db, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, db.Close())
+	})
+
+	require.NoError(t, postgres.CreateTicketsTable(context.Background(), db))
+
 	receiptIssuer := &MockReceiptIssuer{}
 	spreadsheetAppender := &MockSpreadsheetAppender{}
 
@@ -27,7 +39,7 @@ func TestComponent(t *testing.T) {
 	t.Cleanup(cancel)
 
 	go func() {
-		svc, err := service.New(logger, rdb, receiptIssuer, spreadsheetAppender)
+		svc, err := service.New(logger, rdb, receiptIssuer, spreadsheetAppender, db)
 		assert.NoError(t, err)
 
 		assert.NoError(t, svc.Run(ctx))
@@ -73,6 +85,6 @@ func TestComponent(t *testing.T) {
 		}
 
 		sendTicketsStatus(t, req)
-		assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
+		assertTicketToRefundRowForTicketAppended(t, spreadsheetAppender, ticket)
 	})
 }

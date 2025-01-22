@@ -15,6 +15,10 @@ type SpreadsheetAppender interface {
 	AppendRow(ctx context.Context, spreadsheetName string, row []string) error
 }
 
+type TicketRepo interface {
+	Create(ctx context.Context, ticket entity.Ticket) error
+}
+
 func handleIssueReceipt(r ReceiptIssuer) func(ctx context.Context, e *event.TicketBookingConfirmed) error {
 	return func(ctx context.Context, e *event.TicketBookingConfirmed) error {
 		currency := e.Price.Currency
@@ -59,5 +63,20 @@ func handleAppendToTrackerCanceled(s SpreadsheetAppender) func(context.Context, 
 		}
 
 		return nil
+	}
+}
+
+func handleStoreInDB(repo TicketRepo) func(context.Context, *event.TicketBookingConfirmed) error {
+	return func(ctx context.Context, e *event.TicketBookingConfirmed) error {
+		t := entity.Ticket{
+			ID:            e.TicketID,
+			Status:        entity.StatusConfirmed,
+			CustomerEmail: e.CustomerEmail,
+			Price: entity.Money{
+				Amount:   e.Price.Amount,
+				Currency: e.Price.Currency,
+			},
+		}
+		return repo.Create(ctx, t)
 	}
 }

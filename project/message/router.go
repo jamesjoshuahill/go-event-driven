@@ -21,6 +21,7 @@ func NewRouter(
 	rdb *redis.Client,
 	receiptIssuer ReceiptIssuer,
 	spreadsheetAppender SpreadsheetAppender,
+	ticketRepo TicketRepo,
 ) (*Router, error) {
 	router, err := message.NewRouter(message.RouterConfig{}, logger)
 	if err != nil {
@@ -64,6 +65,7 @@ func NewRouter(
 		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(receiptIssuer)),
 		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(spreadsheetAppender)),
 		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(spreadsheetAppender)),
+		cqrs.NewEventHandler("store-in-db", handleStoreInDB(ticketRepo)),
 	}
 
 	ep.AddHandlers(handlers...)

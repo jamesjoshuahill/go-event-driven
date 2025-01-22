@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"tickets/http"
 	"tickets/message"
+	"tickets/postgres"
 	"time"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
@@ -15,7 +15,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
-	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -31,6 +30,7 @@ func New(
 	redisClient *redis.Client,
 	receiptIssuer message.ReceiptIssuer,
 	spreadsheetAppender message.SpreadsheetAppender,
+	db *sqlx.DB,
 ) (*Service, error) {
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: redisClient,
@@ -52,7 +52,9 @@ func New(
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender)
+	ticketRepo := postgres.NewTicketRepo(db)
+
+	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender, ticketRepo)
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
@@ -66,10 +68,6 @@ func New(
 }
 
 func (s Service) Run(ctx context.Context) error {
-	if err := createTicketsTable(ctx); err != nil {
-		return err
-	}
-
 	g, runCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -111,26 +109,6 @@ func (s Service) Run(ctx context.Context) error {
 		return fmt.Errorf("waiting for shutdown: %w", err)
 	}
 	logrus.Info("Shutdown complete.")
-
-	return nil
-}
-
-func createTicketsTable(ctx context.Context) error {
-	db, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
-	if err != nil {
-		return fmt.Errorf("connecting to db: %w", err)
-	}
-	defer db.Close()
-
-	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS tickets (
-		ticket_id UUID PRIMARY KEY,
-		price_amount NUMERIC(10, 2) NOT NULL,
-		price_currency CHAR(3) NOT NULL,
-		customer_email VARCHAR(255) NOT NULL
-		);`)
-	if err != nil {
-		return fmt.Errorf("creating tickets table: %w", err)
-	}
 
 	return nil
 }
