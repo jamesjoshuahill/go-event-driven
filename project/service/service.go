@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"tickets/http"
 	"tickets/message"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
+	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -63,6 +66,10 @@ func New(
 }
 
 func (s Service) Run(ctx context.Context) error {
+	if err := createTicketsTable(ctx); err != nil {
+		return err
+	}
+
 	g, runCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -104,6 +111,26 @@ func (s Service) Run(ctx context.Context) error {
 		return fmt.Errorf("waiting for shutdown: %w", err)
 	}
 	logrus.Info("Shutdown complete.")
+
+	return nil
+}
+
+func createTicketsTable(ctx context.Context) error {
+	db, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
+	if err != nil {
+		return fmt.Errorf("connecting to db: %w", err)
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS tickets (
+		ticket_id UUID PRIMARY KEY,
+		price_amount NUMERIC(10, 2) NOT NULL,
+		price_currency CHAR(3) NOT NULL,
+		customer_email VARCHAR(255) NOT NULL
+		);`)
+	if err != nil {
+		return fmt.Errorf("creating tickets table: %w", err)
+	}
 
 	return nil
 }
