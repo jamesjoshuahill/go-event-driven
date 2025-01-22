@@ -59,7 +59,7 @@ func New(
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	httpRouter := http.NewRouter(eventBus)
+	httpRouter := http.NewRouter(eventBus, ticketRepo)
 
 	return &Service{
 		msgRouter:  msgRouter,

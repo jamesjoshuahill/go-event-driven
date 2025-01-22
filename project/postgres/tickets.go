@@ -53,3 +53,22 @@ func (r TicketRepo) Delete(ctx context.Context, ticketID string) error {
 
 	return nil
 }
+
+func (r TicketRepo) List(ctx context.Context) ([]entity.Ticket, error) {
+	rows, err := r.db.QueryxContext(ctx, "SELECT ticket_id, price_amount, price_currency, customer_email FROM tickets")
+	if err != nil {
+		return nil, fmt.Errorf("querying db: %w", err)
+	}
+
+	var tickets []entity.Ticket
+	for rows.Next() {
+		var t entity.Ticket
+		if err := rows.Scan(&t.ID, &t.Price.Amount, &t.Price.Currency, &t.CustomerEmail); err != nil {
+			return nil, fmt.Errorf("scanning row: %w", err)
+		}
+
+		tickets = append(tickets, t)
+	}
+
+	return tickets, nil
+}

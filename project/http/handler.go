@@ -30,8 +30,13 @@ type Publisher interface {
 	Publish(ctx context.Context, event any) error
 }
 
+type TicketRepo interface {
+	List(ctx context.Context) ([]entity.Ticket, error)
+}
+
 type handler struct {
-	publisher Publisher
+	publisher  Publisher
+	ticketRepo TicketRepo
 }
 
 func (h handler) PostTicketStatus(c echo.Context) error {
@@ -71,4 +76,16 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+func (h handler) ListTickets(c echo.Context) error {
+	tickets, err := h.ticketRepo.List(c.Request().Context())
+	if err != nil {
+		return &echo.HTTPError{
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("listing tickets: %w", err),
+		}
+	}
+
+	return c.JSON(http.StatusOK, tickets)
 }
