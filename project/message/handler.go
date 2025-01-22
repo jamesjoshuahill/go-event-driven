@@ -16,7 +16,8 @@ type SpreadsheetAppender interface {
 }
 
 type TicketRepo interface {
-	Create(ctx context.Context, ticket entity.Ticket) error
+	Add(ctx context.Context, ticket entity.Ticket) error
+	Delete(ctx context.Context, ticketID string) error
 }
 
 func handleIssueReceipt(r ReceiptIssuer) func(ctx context.Context, e *event.TicketBookingConfirmed) error {
@@ -70,13 +71,18 @@ func handleStoreInDB(repo TicketRepo) func(context.Context, *event.TicketBooking
 	return func(ctx context.Context, e *event.TicketBookingConfirmed) error {
 		t := entity.Ticket{
 			ID:            e.TicketID,
-			Status:        entity.StatusConfirmed,
 			CustomerEmail: e.CustomerEmail,
 			Price: entity.Money{
 				Amount:   e.Price.Amount,
 				Currency: e.Price.Currency,
 			},
 		}
-		return repo.Create(ctx, t)
+		return repo.Add(ctx, t)
+	}
+}
+
+func handleRemoveCanceledFromDB(repo TicketRepo) func(context.Context, *event.TicketBookingCanceled) error {
+	return func(ctx context.Context, e *event.TicketBookingCanceled) error {
+		return repo.Delete(ctx, e.TicketID)
 	}
 }

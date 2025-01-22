@@ -47,7 +47,6 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 	for _, ticketStatus := range request.Tickets {
 		ticket := entity.Ticket{
 			ID:            ticketStatus.ID,
-			Status:        ticketStatus.Status,
 			CustomerEmail: ticketStatus.CustomerEmail,
 			Price: entity.Money{
 				Amount:   ticketStatus.Price.Amount,
@@ -56,7 +55,7 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 		}
 
 		var e any
-		switch ticket.Status {
+		switch ticketStatus.Status {
 		case entity.StatusConfirmed:
 			e = event.NewTicketBookingConfirmed(ticket)
 		case entity.StatusCanceled:

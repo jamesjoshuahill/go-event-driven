@@ -65,7 +65,8 @@ func NewRouter(
 		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(receiptIssuer)),
 		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(spreadsheetAppender)),
 		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(spreadsheetAppender)),
-		cqrs.NewEventHandler("store-in-db", handleStoreInDB(ticketRepo)),
+		cqrs.NewEventHandler("store-confirmed-in-db", handleStoreInDB(ticketRepo)),
+		cqrs.NewEventHandler("remove-canceled-from-db", handleRemoveCanceledFromDB(ticketRepo)),
 	}
 
 	ep.AddHandlers(handlers...)

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"tickets/entity"
 
 	"github.com/jmoiron/sqlx"
@@ -28,10 +29,27 @@ func NewTicketRepo(db *sqlx.DB) TicketRepo {
 	}
 }
 
-func (r TicketRepo) Create(ctx context.Context, ticket entity.Ticket) error {
+func (r TicketRepo) Add(ctx context.Context, ticket entity.Ticket) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO tickets
 		(ticket_id, price_amount, price_currency, customer_email)
 		VALUES ($1, $2, $3, $4);`,
 		ticket.ID, ticket.Price.Amount, ticket.Price.Currency, ticket.CustomerEmail)
 	return err
+}
+
+func (r TicketRepo) Delete(ctx context.Context, ticketID string) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM tickets WHERE ticket_id = $1", ticketID)
+	if err != nil {
+		return fmt.Errorf("executing delete query: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("getting rows affected: %w", err)
+	}
+	if n != 1 {
+		return fmt.Errorf("unexpected exec result: %d rows affected", n)
+	}
+
+	return nil
 }
