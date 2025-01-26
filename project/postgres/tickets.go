@@ -32,7 +32,7 @@ func NewTicketRepo(db *sqlx.DB) TicketRepo {
 func (r TicketRepo) Add(ctx context.Context, ticket entity.Ticket) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO tickets
 		(ticket_id, price_amount, price_currency, customer_email)
-		VALUES ($1, $2, $3, $4);`,
+		VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING;`,
 		ticket.ID, ticket.Price.Amount, ticket.Price.Currency, ticket.CustomerEmail)
 	return err
 }
