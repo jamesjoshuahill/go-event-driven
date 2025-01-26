@@ -20,5 +20,6 @@ use (
 	./09-cqrs-events/04-event-processor
 	./09-cqrs-events/05-event-handler
 	./09-cqrs-events/06-cqrs-with-consumer-groups
+	./10-at-least-once-delivery/05-idempotent-event-handlers
 	./project
 )
