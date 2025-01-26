@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
-	"tickets/postgres"
+	"tickets/db"
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -24,13 +24,13 @@ func TestComponent(t *testing.T) {
 		assert.NoError(t, rdb.Conn().Close())
 	})
 
-	db, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
+	dbConn, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		assert.NoError(t, db.Close())
+		assert.NoError(t, dbConn.Close())
 	})
 
-	require.NoError(t, postgres.CreateTicketsTable(context.Background(), db))
+	require.NoError(t, db.CreateTicketsTable(context.Background(), dbConn))
 
 	receiptIssuer := &MockReceiptIssuer{}
 	spreadsheetAppender := &MockSpreadsheetAppender{}
@@ -39,7 +39,7 @@ func TestComponent(t *testing.T) {
 	t.Cleanup(cancel)
 
 	go func() {
-		svc, err := service.New(logger, rdb, receiptIssuer, spreadsheetAppender, db)
+		svc, err := service.New(logger, rdb, receiptIssuer, spreadsheetAppender, dbConn)
 		assert.NoError(t, err)
 
 		assert.NoError(t, svc.Run(ctx))

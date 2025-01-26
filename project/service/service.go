@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"tickets/db"
 	"tickets/http"
 	"tickets/message"
-	"tickets/postgres"
 	"time"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
@@ -30,7 +30,7 @@ func New(
 	redisClient *redis.Client,
 	receiptIssuer message.ReceiptIssuer,
 	spreadsheetAppender message.SpreadsheetAppender,
-	db *sqlx.DB,
+	dbConn *sqlx.DB,
 ) (*Service, error) {
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: redisClient,
@@ -52,7 +52,7 @@ func New(
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	ticketRepo := postgres.NewTicketRepo(db)
+	ticketRepo := db.NewTicketRepo(dbConn)
 
 	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender, ticketRepo)
 	if err != nil {

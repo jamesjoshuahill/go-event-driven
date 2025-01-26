@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"tickets/clients"
-	"tickets/postgres"
+	"tickets/db"
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
@@ -29,7 +29,7 @@ func main() {
 func run(logger watermill.LoggerAdapter) error {
 	c, err := clients.New(os.Getenv("GATEWAY_ADDR"))
 	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
+		return fmt.Errorf("creating gateway client: %w", err)
 	}
 
 	receiptsClient := clients.NewReceiptsClient(c)
@@ -44,12 +44,12 @@ func run(logger watermill.LoggerAdapter) error {
 		}
 	}()
 
-	db, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
+	dbConn, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
 	if err != nil {
 		return fmt.Errorf("connecting to db: %w", err)
 	}
 	defer func() {
-		if err := db.Close(); err != nil {
+		if err := dbConn.Close(); err != nil {
 			logger.Error("failed to close db connection", err, nil)
 		}
 	}()
@@ -57,11 +57,11 @@ func run(logger watermill.LoggerAdapter) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	if err := postgres.CreateTicketsTable(ctx, db); err != nil {
+	if err := db.CreateTicketsTable(ctx, dbConn); err != nil {
 		return fmt.Errorf("creating tickets table: %w", err)
 	}
 
-	svc, err := service.New(logger, rdb, receiptsClient, spreadsheetsClient, db)
+	svc, err := service.New(logger, rdb, receiptsClient, spreadsheetsClient, dbConn)
 	if err != nil {
 		return fmt.Errorf("creating service: %w", err)
 	}
