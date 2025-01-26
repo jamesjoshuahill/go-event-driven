@@ -32,6 +32,7 @@ func TestComponent(t *testing.T) {
 
 	require.NoError(t, db.CreateTicketsTable(context.Background(), dbConn))
 
+	ticketGenerator := &MockTicketGenerator{}
 	receiptIssuer := &MockReceiptIssuer{}
 	spreadsheetAppender := &MockSpreadsheetAppender{}
 
@@ -39,7 +40,7 @@ func TestComponent(t *testing.T) {
 	t.Cleanup(cancel)
 
 	go func() {
-		svc, err := service.New(logger, rdb, receiptIssuer, spreadsheetAppender, dbConn)
+		svc, err := service.New(logger, rdb, ticketGenerator, receiptIssuer, spreadsheetAppender, dbConn)
 		assert.NoError(t, err)
 
 		assert.NoError(t, svc.Run(ctx))

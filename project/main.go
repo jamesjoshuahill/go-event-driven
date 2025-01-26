@@ -32,6 +32,7 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating gateway client: %w", err)
 	}
 
+	ticketGenerator := clients.NewFilesClient(c)
 	receiptsClient := clients.NewReceiptsClient(c)
 	spreadsheetsClient := clients.NewSpreadsheetsClient(c)
 
@@ -61,7 +62,7 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating tickets table: %w", err)
 	}
 
-	svc, err := service.New(logger, rdb, receiptsClient, spreadsheetsClient, dbConn)
+	svc, err := service.New(logger, rdb, ticketGenerator, receiptsClient, spreadsheetsClient, dbConn)
 	if err != nil {
 		return fmt.Errorf("creating service: %w", err)
 	}

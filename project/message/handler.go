@@ -7,8 +7,12 @@ import (
 	"tickets/event"
 )
 
+type TicketGenerator interface {
+	GenerateTicket(ctx context.Context, ticketID string, price entity.Money) error
+}
+
 type ReceiptIssuer interface {
-	IssueReceipt(ctx context.Context, ticketID string, money entity.Money) error
+	IssueReceipt(ctx context.Context, ticketID string, price entity.Money) error
 }
 
 type SpreadsheetAppender interface {
@@ -84,5 +88,11 @@ func handleStoreInDB(repo TicketRepo) func(context.Context, *event.TicketBooking
 func handleRemoveCanceledFromDB(repo TicketRepo) func(context.Context, *event.TicketBookingCanceled) error {
 	return func(ctx context.Context, e *event.TicketBookingCanceled) error {
 		return repo.Delete(ctx, e.TicketID)
+	}
+}
+
+func handleStoreFileToPrint(g TicketGenerator) func(context.Context, *event.TicketBookingConfirmed) error {
+	return func(ctx context.Context, e *event.TicketBookingConfirmed) error {
+		return g.GenerateTicket(ctx, e.TicketID, e.Price)
 	}
 }

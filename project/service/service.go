@@ -28,6 +28,7 @@ type Service struct {
 func New(
 	logger watermill.LoggerAdapter,
 	redisClient *redis.Client,
+	ticketGenerator message.TicketGenerator,
 	receiptIssuer message.ReceiptIssuer,
 	spreadsheetAppender message.SpreadsheetAppender,
 	dbConn *sqlx.DB,
@@ -54,7 +55,7 @@ func New(
 
 	ticketRepo := db.NewTicketRepo(dbConn)
 
-	msgRouter, err := message.NewRouter(logger, redisClient, receiptIssuer, spreadsheetAppender, ticketRepo)
+	msgRouter, err := message.NewRouter(logger, redisClient, ticketGenerator, receiptIssuer, spreadsheetAppender, ticketRepo)
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}

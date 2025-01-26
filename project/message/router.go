@@ -19,6 +19,7 @@ type Router struct {
 func NewRouter(
 	logger watermill.LoggerAdapter,
 	rdb *redis.Client,
+	ticketGenerator TicketGenerator,
 	receiptIssuer ReceiptIssuer,
 	spreadsheetAppender SpreadsheetAppender,
 	ticketRepo TicketRepo,
@@ -67,6 +68,7 @@ func NewRouter(
 		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(spreadsheetAppender)),
 		cqrs.NewEventHandler("store-confirmed-in-db", handleStoreInDB(ticketRepo)),
 		cqrs.NewEventHandler("remove-canceled-from-db", handleRemoveCanceledFromDB(ticketRepo)),
+		cqrs.NewEventHandler("store-file-to-print", handleStoreFileToPrint(ticketGenerator)),
 	}
 
 	ep.AddHandlers(handlers...)

@@ -6,6 +6,8 @@ import (
 	"tickets/entity"
 )
 
+type MockTicketGenerator struct{}
+
 type MockReceiptIssuer struct {
 	lock           sync.Mutex
 	IssuedReceipts []IssueReceiptRequest
