@@ -16,13 +16,11 @@ import (
 
 var dbConn *sqlx.DB
 
-// Run the following before running the tests:
-//
-//	docker compose up -d
-//	os.Setenv("POSTGRES_URL", "postgres://user:password@localhost:5432/db?sslmode=disable")
 func TestMain(m *testing.M) {
+	dsn := getEnvOrDefault("POSTGRES_URL", "postgres://user:password@localhost:5432/db?sslmode=disable")
+
 	var err error
-	dbConn, err = sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
+	dbConn, err = sqlx.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %s", err)
 	}
@@ -53,4 +51,21 @@ func TestTicketRepo_Add(t *testing.T) {
 	r := db.NewTicketRepo(dbConn)
 	require.NoError(t, r.Add(ctx, ticket))
 	require.NoError(t, r.Add(ctx, ticket))
+
+	tickets, err := r.List(ctx)
+	require.NoError(t, err)
+	var matchingTickets []entity.Ticket
+	for _, t := range tickets {
+		if t.ID == ticket.ID {
+			matchingTickets = append(matchingTickets, t)
+		}
+	}
+	require.Len(t, matchingTickets, 1)
+}
+
+func getEnvOrDefault(key string, defaultValue string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultValue
 }
