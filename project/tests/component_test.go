@@ -2,12 +2,12 @@ package tests_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"tickets/db"
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/watermill"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
@@ -17,14 +17,17 @@ import (
 
 func TestComponent(t *testing.T) {
 	logger := watermill.NewStdLogger(false, false)
+
+	redisAddr := getEnvOrDefault("REDIS_ADDR", "localhost:6379")
 	rdb := redis.NewClient(&redis.Options{
-		Addr: os.Getenv("REDIS_ADDR"),
+		Addr: redisAddr,
 	})
 	t.Cleanup(func() {
 		assert.NoError(t, rdb.Conn().Close())
 	})
 
-	dbConn, err := sqlx.Open("postgres", os.Getenv("POSTGRES_URL"))
+	dsn := getEnvOrDefault("POSTGRES_URL", "postgres://user:password@localhost:5432/db?sslmode=disable")
+	dbConn, err := sqlx.Open("postgres", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, dbConn.Close())
@@ -44,13 +47,12 @@ func TestComponent(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.NoError(t, svc.Run(ctx))
-
 	}()
 
 	waitForHttpServer(t)
 	t.Run("confimed ticket", func(t *testing.T) {
 		ticket := TicketStatus{
-			TicketID:      "some ticket id",
+			TicketID:      uuid.NewString(),
 			Status:        "confirmed",
 			CustomerEmail: "someone@example.com",
 			Price: Money{
@@ -71,7 +73,7 @@ func TestComponent(t *testing.T) {
 
 	t.Run("canceled ticket", func(t *testing.T) {
 		ticket := TicketStatus{
-			TicketID:      "some ticket id",
+			TicketID:      uuid.NewString(),
 			Status:        "canceled",
 			CustomerEmail: "someone@example.com",
 			Price: Money{

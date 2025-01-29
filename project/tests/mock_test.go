@@ -8,6 +8,10 @@ import (
 
 type MockTicketGenerator struct{}
 
+func (m *MockTicketGenerator) GenerateTicket(_ context.Context, ticketID string, price entity.Money) error {
+	return nil
+}
+
 type MockReceiptIssuer struct {
 	lock           sync.Mutex
 	IssuedReceipts []IssueReceiptRequest
