@@ -12,19 +12,22 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type RouterDeps struct {
+	Logger              watermill.LoggerAdapter
+	Publisher           Publisher
+	ReceiptIssuer       ReceiptIssuer
+	RedisClient         *redis.Client
+	SpreadsheetAppender SpreadsheetAppender
+	TicketGenerator     TicketGenerator
+	TicketRepo          TicketRepo
+}
+
 type Router struct {
 	*message.Router
 }
 
-func NewRouter(
-	logger watermill.LoggerAdapter,
-	rdb *redis.Client,
-	ticketGenerator TicketGenerator,
-	receiptIssuer ReceiptIssuer,
-	spreadsheetAppender SpreadsheetAppender,
-	ticketRepo TicketRepo,
-) (*Router, error) {
-	router, err := message.NewRouter(message.RouterConfig{}, logger)
+func NewRouter(deps RouterDeps) (*Router, error) {
+	router, err := message.NewRouter(message.RouterConfig{}, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating router: %w", err)
 	}
@@ -37,16 +40,16 @@ func NewRouter(
 		InitialInterval: time.Millisecond * 100,
 		MaxInterval:     time.Second,
 		Multiplier:      2,
-		Logger:          logger,
+		Logger:          deps.Logger,
 	}.Middleware)
 	router.AddMiddleware(skipInvalidEventsMiddleware)
 
 	config := cqrs.EventProcessorConfig{
 		SubscriberConstructor: func(params cqrs.EventProcessorSubscriberConstructorParams) (message.Subscriber, error) {
 			return redisstream.NewSubscriber(redisstream.SubscriberConfig{
-				Client:        rdb,
+				Client:        deps.RedisClient,
 				ConsumerGroup: "svc-users." + params.HandlerName,
-			}, logger)
+			}, deps.Logger)
 		},
 		GenerateSubscribeTopic: func(params cqrs.EventProcessorGenerateSubscribeTopicParams) (string, error) {
 			return params.EventName, nil
@@ -54,7 +57,7 @@ func NewRouter(
 		Marshaler: cqrs.JSONMarshaler{
 			GenerateName: cqrs.StructName,
 		},
-		Logger: logger,
+		Logger: deps.Logger,
 	}
 
 	ep, err := cqrs.NewEventProcessorWithConfig(router, config)
@@ -63,15 +66,17 @@ func NewRouter(
 	}
 
 	handlers := []cqrs.EventHandler{
-		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(receiptIssuer)),
-		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(spreadsheetAppender)),
-		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(spreadsheetAppender)),
-		cqrs.NewEventHandler("store-confirmed-in-db", handleStoreInDB(ticketRepo)),
-		cqrs.NewEventHandler("remove-canceled-from-db", handleRemoveCanceledFromDB(ticketRepo)),
-		cqrs.NewEventHandler("store-file-to-print", handleStoreFileToPrint(ticketGenerator)),
+		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(deps.ReceiptIssuer)),
+		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(deps.SpreadsheetAppender)),
+		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(deps.SpreadsheetAppender)),
+		cqrs.NewEventHandler("store-confirmed-in-db", handleStoreInDB(deps.TicketRepo)),
+		cqrs.NewEventHandler("remove-canceled-from-db", handleRemoveCanceledFromDB(deps.TicketRepo)),
+		cqrs.NewEventHandler("print-ticket", handlePrintTicket(deps.TicketGenerator, deps.Publisher)),
 	}
 
-	ep.AddHandlers(handlers...)
+	if err := ep.AddHandlers(handlers...); err != nil {
+		return nil, fmt.Errorf("adding handlers: %w", err)
+	}
 
 	return &Router{router}, nil
 }

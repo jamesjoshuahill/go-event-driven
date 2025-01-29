@@ -55,7 +55,15 @@ func New(
 
 	ticketRepo := db.NewTicketRepo(dbConn)
 
-	msgRouter, err := message.NewRouter(logger, redisClient, ticketGenerator, receiptIssuer, spreadsheetAppender, ticketRepo)
+	msgRouter, err := message.NewRouter(message.RouterDeps{
+		Logger:              logger,
+		Publisher:           eventBus,
+		ReceiptIssuer:       receiptIssuer,
+		RedisClient:         redisClient,
+		SpreadsheetAppender: spreadsheetAppender,
+		TicketGenerator:     ticketGenerator,
+		TicketRepo:          ticketRepo,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}

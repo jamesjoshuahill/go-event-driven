@@ -7,8 +7,8 @@ import (
 	"tickets/event"
 )
 
-type TicketGenerator interface {
-	GenerateTicket(ctx context.Context, ticketID string, price entity.Money) error
+type Publisher interface {
+	Publish(ctx context.Context, event any) error
 }
 
 type ReceiptIssuer interface {
@@ -17,6 +17,10 @@ type ReceiptIssuer interface {
 
 type SpreadsheetAppender interface {
 	AppendRow(ctx context.Context, spreadsheetName string, row []string) error
+}
+
+type TicketGenerator interface {
+	GenerateTicket(ctx context.Context, ticketID string, price entity.Money) (string, error)
 }
 
 type TicketRepo interface {
@@ -91,8 +95,19 @@ func handleRemoveCanceledFromDB(repo TicketRepo) func(context.Context, *event.Ti
 	}
 }
 
-func handleStoreFileToPrint(g TicketGenerator) func(context.Context, *event.TicketBookingConfirmed) error {
+func handlePrintTicket(g TicketGenerator, p Publisher) func(context.Context, *event.TicketBookingConfirmed) error {
 	return func(ctx context.Context, e *event.TicketBookingConfirmed) error {
-		return g.GenerateTicket(ctx, e.TicketID, e.Price)
+		fileID, err := g.GenerateTicket(ctx, e.TicketID, e.Price)
+		if err != nil {
+			return fmt.Errorf("generating ticket: %w", err)
+		}
+
+		ticketPrinted := event.NewTicketPrinted(e.TicketID, fileID)
+
+		if err := p.Publish(ctx, ticketPrinted); err != nil {
+			return fmt.Errorf("publishing ticket printed event: %w", err)
+		}
+
+		return nil
 	}
 }

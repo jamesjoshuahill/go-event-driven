@@ -8,8 +8,8 @@ import (
 
 type MockTicketGenerator struct{}
 
-func (m *MockTicketGenerator) GenerateTicket(_ context.Context, ticketID string, price entity.Money) error {
-	return nil
+func (m *MockTicketGenerator) GenerateTicket(_ context.Context, ticketID string, price entity.Money) (string, error) {
+	return "", nil
 }
 
 type MockReceiptIssuer struct {

@@ -56,3 +56,17 @@ func NewTicketBookingCanceled(ticket entity.Ticket) TicketBookingCanceled {
 		},
 	}
 }
+
+type TicketPrinted struct {
+	Header   header `json:"header"`
+	TicketID string `json:"ticket_id"`
+	FileName string `json:"file_name"`
+}
+
+func NewTicketPrinted(ticketID, fileName string) TicketPrinted {
+	return TicketPrinted{
+		Header:   newHeader(),
+		TicketID: ticketID,
+		FileName: fileName,
+	}
+}

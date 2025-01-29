@@ -26,23 +26,23 @@ func NewFilesClient(clients *clients.Clients) FilesClient {
 	}
 }
 
-func (c FilesClient) GenerateTicket(ctx context.Context, ticketID string, price entity.Money) error {
+func (c FilesClient) GenerateTicket(ctx context.Context, ticketID string, price entity.Money) (string, error) {
 	fileID := fmt.Sprintf("%s-ticket.html", ticketID)
 	fileContent := fmt.Sprintf(printTicketFileTemplate, ticketID, price.Amount, price.Currency)
 
 	res, err := c.clients.Files.PutFilesFileIdContentWithTextBodyWithResponse(ctx, fileID, fileContent)
 	if err != nil {
-		return fmt.Errorf("put file request: %w", err)
+		return "", fmt.Errorf("put file request: %w", err)
 	}
 
 	if res.StatusCode() == http.StatusConflict {
 		log.FromContext(ctx).Infof("file %s already exists", fileID)
-		return nil
+		return fileID, nil
 	}
 
 	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %v", res.StatusCode())
+		return "", fmt.Errorf("unexpected status code: %v", res.StatusCode())
 	}
 
-	return nil
+	return fileID, nil
 }
