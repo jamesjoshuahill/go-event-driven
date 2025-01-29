@@ -8,6 +8,7 @@ require (
 	github.com/ThreeDotsLabs/go-event-driven v0.0.13
 	github.com/ThreeDotsLabs/watermill v1.3.2
 	github.com/ThreeDotsLabs/watermill-redisstream v1.3.0
+	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/labstack/echo/v4 v4.10.2
 	github.com/lib/pq v1.10.9
@@ -29,7 +30,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/labstack/gommon v0.4.0 // indirect

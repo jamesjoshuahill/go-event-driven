@@ -62,6 +62,10 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating tickets table: %w", err)
 	}
 
+	if err := db.CreateShowsTable(ctx, dbConn); err != nil {
+		return fmt.Errorf("creating shows table: %w", err)
+	}
+
 	svc, err := service.New(logger, rdb, dbConn, ticketGenerator, receiptsClient, spreadsheetsClient)
 	if err != nil {
 		return fmt.Errorf("creating service: %w", err)

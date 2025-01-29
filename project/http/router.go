@@ -9,7 +9,7 @@ import (
 
 var ErrServerClosed = http.ErrServerClosed
 
-func NewRouter(publisher Publisher, ticketRepo TicketRepo) *echo.Echo {
+func NewRouter(publisher Publisher, showRepo ShowRepo, ticketRepo TicketRepo) *echo.Echo {
 	server := commonHTTP.NewEcho()
 
 	server.GET("/health", func(c echo.Context) error {
@@ -18,10 +18,12 @@ func NewRouter(publisher Publisher, ticketRepo TicketRepo) *echo.Echo {
 
 	handler := handler{
 		publisher:  publisher,
+		showRepo:   showRepo,
 		ticketRepo: ticketRepo,
 	}
 
-	server.POST("/tickets-status", handler.PostTicketStatus)
+	server.POST("/shows", handler.CreateShow)
+	server.POST("/tickets-status", handler.CreateTicketStatus)
 	server.GET("/tickets", handler.ListTickets)
 
 	return server

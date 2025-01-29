@@ -15,7 +15,7 @@ func CreateTicketsTable(ctx context.Context, db *sqlx.DB) error {
 		price_amount NUMERIC(10, 2) NOT NULL,
 		price_currency CHAR(3) NOT NULL,
 		customer_email VARCHAR(255) NOT NULL
-		);`)
+	);`)
 	return err
 }
 

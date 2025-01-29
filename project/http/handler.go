@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"tickets/entity"
 	"tickets/event"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
-type ticketsStatusRequest struct {
+type createTicketsStatusRequest struct {
 	Tickets []ticketStatus `json:"tickets"`
 }
 
@@ -26,8 +28,24 @@ type money struct {
 	Currency string `json:"currency"`
 }
 
+type createShowRequest struct {
+	DeadNationID    string    `json:"dead_nation_id"`
+	NumberOfTickets uint      `json:"number_of_tickets"`
+	StartTime       time.Time `json:"start_time"`
+	Title           string    `json:"title"`
+	Venue           string    `json:"venue"`
+}
+
+type createShowResponse struct {
+	ShowID string `json:"show_id"`
+}
+
 type Publisher interface {
 	Publish(ctx context.Context, event any) error
+}
+
+type ShowRepo interface {
+	Add(ctx context.Context, show entity.Show) error
 }
 
 type TicketRepo interface {
@@ -36,11 +54,12 @@ type TicketRepo interface {
 
 type handler struct {
 	publisher  Publisher
+	showRepo   ShowRepo
 	ticketRepo TicketRepo
 }
 
-func (h handler) PostTicketStatus(c echo.Context) error {
-	var body ticketsStatusRequest
+func (h handler) CreateTicketStatus(c echo.Context) error {
+	var body createTicketsStatusRequest
 	if err := c.Bind(&body); err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusBadRequest,
@@ -93,10 +112,43 @@ func (h handler) ListTickets(c echo.Context) error {
 	tickets, err := h.ticketRepo.List(c.Request().Context())
 	if err != nil {
 		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
 			Message:  http.StatusText(http.StatusInternalServerError),
 			Internal: fmt.Errorf("listing tickets: %w", err),
 		}
 	}
 
 	return c.JSON(http.StatusOK, tickets)
+}
+
+func (h handler) CreateShow(c echo.Context) error {
+	var reqBody createShowRequest
+	if err := c.Bind(&reqBody); err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Message:  "failed to parse request",
+			Internal: fmt.Errorf("failed to bind request: %w", err),
+		}
+	}
+
+	show := entity.Show{
+		ShowID:          uuid.NewString(),
+		DeadNationID:    reqBody.DeadNationID,
+		NumberOfTickets: reqBody.NumberOfTickets,
+		StartTime:       reqBody.StartTime.UTC(),
+		Title:           reqBody.Title,
+		Venue:           reqBody.Venue,
+	}
+
+	if err := h.showRepo.Add(c.Request().Context(), show); err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("adding show: %w", err),
+		}
+	}
+
+	return c.JSON(http.StatusCreated, createShowResponse{
+		ShowID: show.ShowID,
+	})
 }
