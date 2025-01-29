@@ -54,7 +54,7 @@ func New(
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	bookingRepo := db.NewBookingRepo()
+	bookingRepo := db.NewBookingRepo(dbConn, logger)
 	showRepo := db.NewShowRepo(dbConn)
 	ticketRepo := db.NewTicketRepo(dbConn)
 

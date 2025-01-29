@@ -2,19 +2,13 @@ package http
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"tickets/entity"
 	"tickets/event"
-	"tickets/message"
 	"time"
 
-	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
-	watermillSQL "github.com/ThreeDotsLabs/watermill-sql/v2/pkg/sql"
-	"github.com/ThreeDotsLabs/watermill/components/cqrs"
-	"github.com/ThreeDotsLabs/watermill/components/forwarder"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -59,7 +53,7 @@ type createBookingResponse struct {
 }
 
 type BookingRepo interface {
-	AddInTx(ctx context.Context, tx *sql.Tx, booking entity.Booking) error
+	Add(ctx context.Context, booking entity.Booking) error
 }
 
 type Publisher interface {
@@ -192,38 +186,11 @@ func (h handler) CreateBooking(c echo.Context) error {
 		CustomerEmail:   reqBody.CustomerEmail,
 	}
 
-	tx, err := h.db.BeginTx(c.Request().Context(), nil)
-	if err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusInternalServerError,
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("beginning transaction: %w", err),
-		}
-	}
-
-	if err := h.bookingRepo.AddInTx(c.Request().Context(), tx, booking); err != nil {
+	if err := h.bookingRepo.Add(c.Request().Context(), booking); err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusInternalServerError,
 			Message:  http.StatusText(http.StatusInternalServerError),
 			Internal: fmt.Errorf("adding booking: %w", err),
-		}
-	}
-
-	e := event.NewBookingMade(uuid.NewString(), booking)
-
-	if err := PublishInTx(c.Request().Context(), e, tx, h.logger); err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusInternalServerError,
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("publishing event: %w", err),
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return &echo.HTTPError{
-			Code:     http.StatusInternalServerError,
-			Message:  http.StatusText(http.StatusInternalServerError),
-			Internal: fmt.Errorf("committing transaction: %w", err),
 		}
 	}
 
@@ -242,46 +209,4 @@ func getIdempotencyKey(c echo.Context) (string, error) {
 	}
 
 	return idempotencyKey, nil
-}
-
-func PublishInTx(
-	ctx context.Context,
-	event any,
-	tx *sql.Tx,
-	logger watermill.LoggerAdapter,
-) error {
-	sqlPublisher, err := watermillSQL.NewPublisher(
-		tx,
-		watermillSQL.PublisherConfig{
-			SchemaAdapter: watermillSQL.DefaultPostgreSQLSchema{},
-		},
-		logger,
-	)
-	if err != nil {
-		return fmt.Errorf("creating sql publisher: %w", err)
-	}
-
-	publisher := forwarder.NewPublisher(sqlPublisher, forwarder.PublisherConfig{
-		ForwarderTopic: message.OutboxTopic,
-	})
-
-	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
-
-	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
-		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
-			return params.EventName, nil
-		},
-		Marshaler: cqrs.JSONMarshaler{
-			GenerateName: cqrs.StructName,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("creating sql event bus: %w", err)
-	}
-
-	if err := eventBus.Publish(ctx, event); err != nil {
-		return fmt.Errorf("publishing event: %w", err)
-	}
-
-	return nil
 }
