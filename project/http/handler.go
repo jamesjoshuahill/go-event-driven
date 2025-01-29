@@ -7,6 +7,7 @@ import (
 	"tickets/entity"
 	"tickets/event"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -40,8 +41,8 @@ type handler struct {
 }
 
 func (h handler) PostTicketStatus(c echo.Context) error {
-	var request ticketsStatusRequest
-	if err := c.Bind(&request); err != nil {
+	var body ticketsStatusRequest
+	if err := c.Bind(&body); err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusBadRequest,
 			Message:  "failed to parse request",
@@ -49,7 +50,12 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 		}
 	}
 
-	for _, ticketStatus := range request.Tickets {
+	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = uuid.NewString()
+	}
+
+	for _, ticketStatus := range body.Tickets {
 		ticket := entity.Ticket{
 			ID:            ticketStatus.ID,
 			CustomerEmail: ticketStatus.CustomerEmail,
@@ -62,9 +68,9 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 		var e any
 		switch ticketStatus.Status {
 		case entity.StatusConfirmed:
-			e = event.NewTicketBookingConfirmed(ticket)
+			e = event.NewTicketBookingConfirmed(idempotencyKey, ticket)
 		case entity.StatusCanceled:
-			e = event.NewTicketBookingCanceled(ticket)
+			e = event.NewTicketBookingCanceled(idempotencyKey, ticket)
 		}
 
 		if err := h.publisher.Publish(c.Request().Context(), e); err != nil {

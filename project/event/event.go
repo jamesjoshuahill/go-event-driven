@@ -8,14 +8,16 @@ import (
 )
 
 type header struct {
-	ID          string
-	PublishedAt time.Time
+	ID             string    `json:"id"`
+	PublishedAt    time.Time `json:"published_at"`
+	IdempotencyKey string    `json:"idempotency_key"`
 }
 
-func newHeader() header {
+func newHeader(idempotencyKey string) header {
 	return header{
-		ID:          watermill.NewUUID(),
-		PublishedAt: time.Now().UTC(),
+		ID:             watermill.NewUUID(),
+		PublishedAt:    time.Now().UTC(),
+		IdempotencyKey: idempotencyKey,
 	}
 }
 
@@ -26,9 +28,9 @@ type TicketBookingConfirmed struct {
 	Price         entity.Money `json:"price"`
 }
 
-func NewTicketBookingConfirmed(ticket entity.Ticket) TicketBookingConfirmed {
+func NewTicketBookingConfirmed(idempotencyKey string, ticket entity.Ticket) TicketBookingConfirmed {
 	return TicketBookingConfirmed{
-		Header:        newHeader(),
+		Header:        newHeader(idempotencyKey),
 		TicketID:      ticket.ID,
 		CustomerEmail: ticket.CustomerEmail,
 		Price: entity.Money{
@@ -45,9 +47,9 @@ type TicketBookingCanceled struct {
 	Price         entity.Money `json:"price"`
 }
 
-func NewTicketBookingCanceled(ticket entity.Ticket) TicketBookingCanceled {
+func NewTicketBookingCanceled(idempotencyKey string, ticket entity.Ticket) TicketBookingCanceled {
 	return TicketBookingCanceled{
-		Header:        newHeader(),
+		Header:        newHeader(idempotencyKey),
 		TicketID:      ticket.ID,
 		CustomerEmail: ticket.CustomerEmail,
 		Price: entity.Money{
@@ -63,9 +65,9 @@ type TicketPrinted struct {
 	FileName string `json:"file_name"`
 }
 
-func NewTicketPrinted(ticketID, fileName string) TicketPrinted {
+func NewTicketPrinted(idempotencyKey, ticketID, fileName string) TicketPrinted {
 	return TicketPrinted{
-		Header:   newHeader(),
+		Header:   newHeader(idempotencyKey),
 		TicketID: ticketID,
 		FileName: fileName,
 	}

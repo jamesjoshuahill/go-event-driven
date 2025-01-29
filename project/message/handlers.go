@@ -12,7 +12,7 @@ type Publisher interface {
 }
 
 type ReceiptIssuer interface {
-	IssueReceipt(ctx context.Context, ticketID string, price entity.Money) error
+	IssueReceipt(ctx context.Context, idempotencyKey, ticketID string, price entity.Money) error
 }
 
 type SpreadsheetAppender interface {
@@ -40,7 +40,7 @@ func handleIssueReceipt(r ReceiptIssuer) func(ctx context.Context, e *event.Tick
 			Currency: currency,
 		}
 
-		if err := r.IssueReceipt(ctx, e.TicketID, price); err != nil {
+		if err := r.IssueReceipt(ctx, e.Header.IdempotencyKey, e.TicketID, price); err != nil {
 			return err
 		}
 
@@ -102,7 +102,7 @@ func handlePrintTicket(g TicketGenerator, p Publisher) func(context.Context, *ev
 			return fmt.Errorf("generating ticket: %w", err)
 		}
 
-		ticketPrinted := event.NewTicketPrinted(e.TicketID, fileID)
+		ticketPrinted := event.NewTicketPrinted(e.Header.IdempotencyKey, e.TicketID, fileID)
 
 		if err := p.Publish(ctx, ticketPrinted); err != nil {
 			return fmt.Errorf("publishing ticket printed event: %w", err)
