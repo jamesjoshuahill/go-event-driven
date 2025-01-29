@@ -28,10 +28,10 @@ type Service struct {
 func New(
 	logger watermill.LoggerAdapter,
 	redisClient *redis.Client,
+	dbConn *sqlx.DB,
 	ticketGenerator message.TicketGenerator,
 	receiptIssuer message.ReceiptIssuer,
 	spreadsheetAppender message.SpreadsheetAppender,
-	dbConn *sqlx.DB,
 ) (*Service, error) {
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: redisClient,

@@ -62,7 +62,7 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("creating tickets table: %w", err)
 	}
 
-	svc, err := service.New(logger, rdb, ticketGenerator, receiptsClient, spreadsheetsClient, dbConn)
+	svc, err := service.New(logger, rdb, dbConn, ticketGenerator, receiptsClient, spreadsheetsClient)
 	if err != nil {
 		return fmt.Errorf("creating service: %w", err)
 	}
