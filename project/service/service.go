@@ -21,8 +21,9 @@ import (
 )
 
 type Service struct {
-	msgRouter  *message.Router
-	httpRouter *echo.Echo
+	msgForwarder *message.Forwarder
+	msgRouter    *message.Router
+	httpRouter   *echo.Echo
 }
 
 func New(
@@ -53,7 +54,7 @@ func New(
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	bookingRepo := db.NewBookingRepo(dbConn)
+	bookingRepo := db.NewBookingRepo()
 	showRepo := db.NewShowRepo(dbConn)
 	ticketRepo := db.NewTicketRepo(dbConn)
 
@@ -70,11 +71,17 @@ func New(
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	httpRouter := http.NewRouter(bookingRepo, eventBus, showRepo, ticketRepo)
+	msgForwarder, err := message.NewForwarder(dbConn, redisClient, message.OutboxTopic, logger)
+	if err != nil {
+		return nil, fmt.Errorf("creating message forwarder: %w", err)
+	}
+
+	httpRouter := http.NewRouter(dbConn, bookingRepo, logger, eventBus, showRepo, ticketRepo)
 
 	return &Service{
-		msgRouter:  msgRouter,
-		httpRouter: httpRouter,
+		msgForwarder: msgForwarder,
+		msgRouter:    msgRouter,
+		httpRouter:   httpRouter,
 	}, nil
 }
 
@@ -83,15 +90,24 @@ func (s Service) Run(ctx context.Context) error {
 
 	g.Go(func() error {
 		if err := s.msgRouter.Run(runCtx); err != nil {
-			return fmt.Errorf("running messaging router: %w", err)
+			return fmt.Errorf("running message router: %w", err)
 		}
 
 		return nil
 	})
 
 	g.Go(func() error {
-		// Wait for message router
+		if err := s.msgForwarder.Run(context.Background()); err != nil {
+			return fmt.Errorf("running message forwarder: %w", err)
+		}
+
+		return nil
+	})
+
+	g.Go(func() error {
+		// Wait for message components
 		<-s.msgRouter.Running()
+		<-s.msgForwarder.Running()
 
 		logrus.Info("Starting HTTP server...")
 		err := s.httpRouter.Start(":8080")

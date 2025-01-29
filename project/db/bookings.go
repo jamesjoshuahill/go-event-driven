@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"tickets/entity"
 
 	"github.com/jmoiron/sqlx"
@@ -18,18 +19,14 @@ func CreateBookingsTable(ctx context.Context, db *sqlx.DB) error {
 	return err
 }
 
-type BookingRepo struct {
-	db *sqlx.DB
+type BookingRepo struct{}
+
+func NewBookingRepo() BookingRepo {
+	return BookingRepo{}
 }
 
-func NewBookingRepo(db *sqlx.DB) BookingRepo {
-	return BookingRepo{
-		db: db,
-	}
-}
-
-func (r BookingRepo) Add(ctx context.Context, booking entity.Booking) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO bookings
+func (r BookingRepo) AddInTx(ctx context.Context, tx *sql.Tx, booking entity.Booking) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO bookings
 		(booking_id, show_id, number_of_tickets, customer_email)
 		VALUES ($1, $2, $3, $4);`,
 		booking.BookingID, booking.ShowID, booking.NumberOfTickets, booking.CustomerEmail)

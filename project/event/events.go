@@ -72,3 +72,21 @@ func NewTicketPrinted(idempotencyKey, ticketID, fileName string) TicketPrinted {
 		FileName: fileName,
 	}
 }
+
+type BookingMade struct {
+	Header          header `json:"header"`
+	BookingID       string `json:"booking_id"`
+	ShowID          string `json:"show_id"`
+	NumberOfTickets uint   `json:"number_of_tickets"`
+	CustomerEmail   string `json:"customer_email"`
+}
+
+func NewBookingMade(idempotencyKey string, booking entity.Booking) BookingMade {
+	return BookingMade{
+		Header:          newHeader(idempotencyKey),
+		BookingID:       booking.BookingID,
+		ShowID:          booking.ShowID,
+		NumberOfTickets: booking.NumberOfTickets,
+		CustomerEmail:   booking.CustomerEmail,
+	}
+}

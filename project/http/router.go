@@ -4,13 +4,17 @@ import (
 	"net/http"
 
 	commonHTTP "github.com/ThreeDotsLabs/go-event-driven/common/http"
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 )
 
 var ErrServerClosed = http.ErrServerClosed
 
 func NewRouter(
+	db *sqlx.DB,
 	bookingRepo BookingRepo,
+	logger watermill.LoggerAdapter,
 	publisher Publisher,
 	showRepo ShowRepo,
 	ticketRepo TicketRepo,
@@ -22,7 +26,9 @@ func NewRouter(
 	})
 
 	handler := handler{
+		db:          db,
 		bookingRepo: bookingRepo,
+		logger:      logger,
 		publisher:   publisher,
 		showRepo:    showRepo,
 		ticketRepo:  ticketRepo,

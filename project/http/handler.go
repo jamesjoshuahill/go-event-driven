@@ -2,13 +2,21 @@ package http
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"tickets/entity"
 	"tickets/event"
+	"tickets/message"
 	"time"
 
+	"github.com/ThreeDotsLabs/go-event-driven/common/log"
+	"github.com/ThreeDotsLabs/watermill"
+	watermillSQL "github.com/ThreeDotsLabs/watermill-sql/v2/pkg/sql"
+	"github.com/ThreeDotsLabs/watermill/components/cqrs"
+	"github.com/ThreeDotsLabs/watermill/components/forwarder"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 )
 
@@ -51,7 +59,7 @@ type createBookingResponse struct {
 }
 
 type BookingRepo interface {
-	Add(ctx context.Context, booking entity.Booking) error
+	AddInTx(ctx context.Context, tx *sql.Tx, booking entity.Booking) error
 }
 
 type Publisher interface {
@@ -67,7 +75,9 @@ type TicketRepo interface {
 }
 
 type handler struct {
+	db          *sqlx.DB
 	bookingRepo BookingRepo
+	logger      watermill.LoggerAdapter
 	publisher   Publisher
 	showRepo    ShowRepo
 	ticketRepo  TicketRepo
@@ -83,12 +93,9 @@ func (h handler) CreateTicketStatus(c echo.Context) error {
 		}
 	}
 
-	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
-	if idempotencyKey == "" {
-		return &echo.HTTPError{
-			Code:    http.StatusBadRequest,
-			Message: "missing required header Idempotency-Key",
-		}
+	idempotencyKey, err := getIdempotencyKey(c)
+	if err != nil {
+		return err
 	}
 
 	for _, ticketStatus := range body.Tickets {
@@ -185,7 +192,16 @@ func (h handler) CreateBooking(c echo.Context) error {
 		CustomerEmail:   reqBody.CustomerEmail,
 	}
 
-	if err := h.bookingRepo.Add(c.Request().Context(), booking); err != nil {
+	tx, err := h.db.BeginTx(c.Request().Context(), nil)
+	if err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("beginning transaction: %w", err),
+		}
+	}
+
+	if err := h.bookingRepo.AddInTx(c.Request().Context(), tx, booking); err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusInternalServerError,
 			Message:  http.StatusText(http.StatusInternalServerError),
@@ -193,7 +209,79 @@ func (h handler) CreateBooking(c echo.Context) error {
 		}
 	}
 
+	e := event.NewBookingMade(uuid.NewString(), booking)
+
+	if err := PublishInTx(c.Request().Context(), e, tx, h.logger); err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("publishing event: %w", err),
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("committing transaction: %w", err),
+		}
+	}
+
 	return c.JSON(http.StatusCreated, createBookingResponse{
 		BookingID: booking.BookingID,
 	})
+}
+
+func getIdempotencyKey(c echo.Context) (string, error) {
+	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		return "", &echo.HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "missing required header Idempotency-Key",
+		}
+	}
+
+	return idempotencyKey, nil
+}
+
+func PublishInTx(
+	ctx context.Context,
+	event any,
+	tx *sql.Tx,
+	logger watermill.LoggerAdapter,
+) error {
+	sqlPublisher, err := watermillSQL.NewPublisher(
+		tx,
+		watermillSQL.PublisherConfig{
+			SchemaAdapter: watermillSQL.DefaultPostgreSQLSchema{},
+		},
+		logger,
+	)
+	if err != nil {
+		return fmt.Errorf("creating sql publisher: %w", err)
+	}
+
+	publisher := forwarder.NewPublisher(sqlPublisher, forwarder.PublisherConfig{
+		ForwarderTopic: message.OutboxTopic,
+	})
+
+	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
+
+	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
+		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
+			return params.EventName, nil
+		},
+		Marshaler: cqrs.JSONMarshaler{
+			GenerateName: cqrs.StructName,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating sql event bus: %w", err)
+	}
+
+	if err := eventBus.Publish(ctx, event); err != nil {
+		return fmt.Errorf("publishing event: %w", err)
+	}
+
+	return nil
 }
