@@ -1,3 +1,3 @@
-exercise_id = "f06083e3-e1ba-4682-ae4d-3f007bab0c20"
-directory = "11-outbox/05-subscribing-from-sql"
+exercise_id = "5b87e341-31cc-4b44-bc8b-5da40c8be069"
+directory = "11-outbox/06-publishing-event-for-forwarder"
 is_text_only = false
