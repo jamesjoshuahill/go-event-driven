@@ -19,10 +19,17 @@ type Money struct {
 }
 
 type Show struct {
-	ShowID          string    `json:"show_id"`
-	DeadNationID    string    `json:"dead_nation_id"`
-	NumberOfTickets uint      `json:"number_of_tickets"`
-	StartTime       time.Time `json:"start_time"`
-	Title           string    `json:"title"`
-	Venue           string    `json:"venue"`
+	ShowID          string
+	DeadNationID    string
+	NumberOfTickets uint
+	StartTime       time.Time
+	Title           string
+	Venue           string
+}
+
+type Booking struct {
+	BookingID       string
+	ShowID          string
+	NumberOfTickets uint
+	CustomerEmail   string
 }

@@ -58,12 +58,8 @@ func run(logger watermill.LoggerAdapter) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	if err := db.CreateTicketsTable(ctx, dbConn); err != nil {
-		return fmt.Errorf("creating tickets table: %w", err)
-	}
-
-	if err := db.CreateShowsTable(ctx, dbConn); err != nil {
-		return fmt.Errorf("creating shows table: %w", err)
+	if err := db.InitialiseDB(ctx, dbConn); err != nil {
+		return fmt.Errorf("initialising db: %w", err)
 	}
 
 	svc, err := service.New(logger, rdb, dbConn, ticketGenerator, receiptsClient, spreadsheetsClient)

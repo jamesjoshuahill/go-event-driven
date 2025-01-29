@@ -48,8 +48,7 @@ func setupDB(t *testing.T) *sqlx.DB {
 		assert.NoError(t, conn.Close())
 	})
 
-	require.NoError(t, db.CreateTicketsTable(context.Background(), conn))
-	require.NoError(t, db.CreateShowsTable(context.Background(), conn))
+	require.NoError(t, db.InitialiseDB(context.Background(), conn))
 
 	return conn
 }

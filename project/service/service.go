@@ -53,6 +53,7 @@ func New(
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
+	bookingRepo := db.NewBookingRepo(dbConn)
 	showRepo := db.NewShowRepo(dbConn)
 	ticketRepo := db.NewTicketRepo(dbConn)
 
@@ -69,7 +70,7 @@ func New(
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	httpRouter := http.NewRouter(eventBus, showRepo, ticketRepo)
+	httpRouter := http.NewRouter(bookingRepo, eventBus, showRepo, ticketRepo)
 
 	return &Service{
 		msgRouter:  msgRouter,

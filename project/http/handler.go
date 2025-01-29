@@ -40,6 +40,20 @@ type createShowResponse struct {
 	ShowID string `json:"show_id"`
 }
 
+type createBookingRequest struct {
+	ShowID          string `json:"show_id"`
+	NumberOfTickets uint   `json:"number_of_tickets"`
+	CustomerEmail   string `json:"customer_email"`
+}
+
+type createBookingResponse struct {
+	BookingID string `json:"booking_id"`
+}
+
+type BookingRepo interface {
+	Add(ctx context.Context, booking entity.Booking) error
+}
+
 type Publisher interface {
 	Publish(ctx context.Context, event any) error
 }
@@ -53,9 +67,10 @@ type TicketRepo interface {
 }
 
 type handler struct {
-	publisher  Publisher
-	showRepo   ShowRepo
-	ticketRepo TicketRepo
+	bookingRepo BookingRepo
+	publisher   Publisher
+	showRepo    ShowRepo
+	ticketRepo  TicketRepo
 }
 
 func (h handler) CreateTicketStatus(c echo.Context) error {
@@ -150,5 +165,35 @@ func (h handler) CreateShow(c echo.Context) error {
 
 	return c.JSON(http.StatusCreated, createShowResponse{
 		ShowID: show.ShowID,
+	})
+}
+
+func (h handler) CreateBooking(c echo.Context) error {
+	var reqBody createBookingRequest
+	if err := c.Bind(&reqBody); err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Message:  "failed to parse request",
+			Internal: fmt.Errorf("failed to bind request: %w", err),
+		}
+	}
+
+	booking := entity.Booking{
+		BookingID:       uuid.NewString(),
+		ShowID:          reqBody.ShowID,
+		NumberOfTickets: reqBody.NumberOfTickets,
+		CustomerEmail:   reqBody.CustomerEmail,
+	}
+
+	if err := h.bookingRepo.Add(c.Request().Context(), booking); err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("adding booking: %w", err),
+		}
+	}
+
+	return c.JSON(http.StatusCreated, createBookingResponse{
+		BookingID: booking.BookingID,
 	})
 }
