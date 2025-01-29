@@ -23,5 +23,6 @@ use (
 	./10-at-least-once-delivery/05-idempotent-event-handlers
 	./10-at-least-once-delivery/10-idempotency-key-in-api
 	./11-outbox/04-publishing-event-in-transaction
+	./11-outbox/05-subscribing-from-sql
 	./project
 )
