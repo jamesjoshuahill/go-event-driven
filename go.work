@@ -25,5 +25,6 @@ use (
 	./11-outbox/04-publishing-event-in-transaction
 	./11-outbox/05-subscribing-from-sql
 	./11-outbox/06-publishing-event-for-forwarder
+	./11-outbox/07-forwarding-with-outbox
 	./project
 )
