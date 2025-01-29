@@ -7,7 +7,6 @@ import (
 	"tickets/entity"
 	"tickets/event"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -52,7 +51,10 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 
 	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
 	if idempotencyKey == "" {
-		idempotencyKey = uuid.NewString()
+		return &echo.HTTPError{
+			Code:    http.StatusBadRequest,
+			Message: "missing required header Idempotency-Key",
+		}
 	}
 
 	for _, ticketStatus := range body.Tickets {
@@ -65,16 +67,19 @@ func (h handler) PostTicketStatus(c echo.Context) error {
 			},
 		}
 
+		ticketIdempotencyKey := idempotencyKey + ticketStatus.ID
+
 		var e any
 		switch ticketStatus.Status {
 		case entity.StatusConfirmed:
-			e = event.NewTicketBookingConfirmed(idempotencyKey, ticket)
+			e = event.NewTicketBookingConfirmed(ticketIdempotencyKey, ticket)
 		case entity.StatusCanceled:
-			e = event.NewTicketBookingCanceled(idempotencyKey, ticket)
+			e = event.NewTicketBookingCanceled(ticketIdempotencyKey, ticket)
 		}
 
 		if err := h.publisher.Publish(c.Request().Context(), e); err != nil {
 			return &echo.HTTPError{
+				Code:     http.StatusInternalServerError,
 				Message:  http.StatusText(http.StatusInternalServerError),
 				Internal: fmt.Errorf("publishing event: %w", err),
 			}

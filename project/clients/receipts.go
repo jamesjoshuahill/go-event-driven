@@ -21,10 +21,8 @@ func NewReceiptsClient(clients *clients.Clients) ReceiptsClient {
 }
 
 func (c ReceiptsClient) IssueReceipt(ctx context.Context, idempotencyKey, ticketID string, price entity.Money) error {
-	key := idempotencyKey + ticketID
-
 	body := receipts.CreateReceipt{
-		IdempotencyKey: &key,
+		IdempotencyKey: &idempotencyKey,
 		TicketId:       ticketID,
 		Price: receipts.Money{
 			MoneyAmount:   price.Amount,
