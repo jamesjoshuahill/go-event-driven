@@ -30,8 +30,11 @@ func TestComponent(t *testing.T) {
 				ticket,
 			},
 		}
+		idempotencyKey := uuid.NewString()
 
-		sendTicketsStatus(t, req)
+		sendTicketsStatus(t, req, idempotencyKey)
+		sendTicketsStatus(t, req, idempotencyKey)
+		sendTicketsStatus(t, req, idempotencyKey)
 		assertReceiptForTicketIssued(t, receiptIssuer, ticket)
 		assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
 		assertStoredTicketInDB(t, dbConn, ticket)
@@ -55,7 +58,7 @@ func TestComponent(t *testing.T) {
 			},
 		}
 
-		sendTicketsStatus(t, req)
+		sendTicketsStatus(t, req, uuid.NewString())
 		assertTicketToRefundRowForTicketAppended(t, spreadsheetAppender, ticket)
 	})
 }

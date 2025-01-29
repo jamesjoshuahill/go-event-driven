@@ -9,13 +9,10 @@ import (
 	"os"
 	"testing"
 	"tickets/db"
-	"tickets/entity"
-	"tickets/event"
 	"tickets/service"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/lithammer/shortuuid/v3"
@@ -85,9 +82,7 @@ func waitForHTTPServer(t *testing.T) {
 			}
 			defer resp.Body.Close()
 
-			if assert.Less(t, resp.StatusCode, 300, "API not ready, http status: %d", resp.StatusCode) {
-				return
-			}
+			assert.Equal(t, 200, resp.StatusCode, "API not ready, http status: %d", resp.StatusCode)
 		},
 		1*time.Second,
 		10*time.Millisecond,
@@ -112,7 +107,7 @@ type Money struct {
 	Currency string `json:"currency"`
 }
 
-func sendTicketsStatus(t *testing.T, req TicketsStatusRequest) {
+func sendTicketsStatus(t *testing.T, req TicketsStatusRequest, idempotencyKey string) {
 	t.Helper()
 
 	payload, err := json.Marshal(req)
@@ -129,7 +124,7 @@ func sendTicketsStatus(t *testing.T, req TicketsStatusRequest) {
 
 	httpReq.Header.Set("Correlation-ID", correlationID)
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Idempotency-Key", uuid.NewString())
+	httpReq.Header.Set("Idempotency-Key", idempotencyKey)
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	require.NoError(t, err)
@@ -183,15 +178,24 @@ func assertTicketToRefundRowForTicketAppended(t *testing.T, spreadsheetAppender 
 			req, ok := spreadsheetAppender.RequestFor("tickets-to-refund", ticket.TicketID)
 			require.True(c, ok)
 
-			assert.Len(t, req.row, 4)
-			assert.Equal(t, ticket.TicketID, req.row[0])
-			assert.Equal(t, ticket.CustomerEmail, req.row[1])
-			assert.Equal(t, ticket.Price.Amount, req.row[2])
-			assert.Equal(t, ticket.Price.Currency, req.row[3])
+			require.Len(c, req.row, 4)
+			assert.Equal(c, ticket.TicketID, req.row[0])
+			assert.Equal(c, ticket.CustomerEmail, req.row[1])
+			assert.Equal(c, ticket.Price.Amount, req.row[2])
+			assert.Equal(c, ticket.Price.Currency, req.row[3])
 		},
 		1*time.Second,
 		10*time.Millisecond,
 	)
+}
+
+type Ticket struct {
+	ID            string
+	CustomerEmail string
+	Price         struct {
+		Amount   string
+		Currency string
+	}
 }
 
 func assertStoredTicketInDB(t *testing.T, dbConn *sqlx.DB, ticket TicketStatus) {
@@ -202,7 +206,7 @@ func assertStoredTicketInDB(t *testing.T, dbConn *sqlx.DB, ticket TicketStatus) 
 		func(c *assert.CollectT) {
 			row := dbConn.QueryRowx("SELECT ticket_id, price_amount, price_currency, customer_email FROM tickets WHERE ticket_id = $1", ticket.TicketID)
 
-			var actual entity.Ticket
+			var actual Ticket
 			err := row.Scan(&actual.ID, &actual.Price.Amount, &actual.Price.Currency, &actual.CustomerEmail)
 			require.NoError(c, err)
 
@@ -223,15 +227,20 @@ func assertTicketGenerated(t *testing.T, ticketGenerator *MockTicketGenerator, t
 		t,
 		func(c *assert.CollectT) {
 			req, ok := ticketGenerator.RequestForTicketID(ticket.TicketID)
-			assert.True(c, ok)
+			require.True(c, ok)
 
-			assert.Equal(t, ticket.TicketID, req.ticketID)
-			assert.Equal(t, ticket.Price.Amount, req.price.Amount)
-			assert.Equal(t, ticket.Price.Currency, req.price.Currency)
+			assert.Equal(c, ticket.TicketID, req.ticketID)
+			assert.Equal(c, ticket.Price.Amount, req.price.Amount)
+			assert.Equal(c, ticket.Price.Currency, req.price.Currency)
 		},
 		1*time.Second,
 		10*time.Millisecond,
 	)
+}
+
+type TicketPrinted struct {
+	TicketID string `json:"ticket_id"`
+	FileName string `json:"file_name"`
 }
 
 func assertTicketPrintedEventPublished(t *testing.T, redisClient *redis.Client, ticket TicketStatus) {
@@ -246,15 +255,15 @@ func assertTicketPrintedEventPublished(t *testing.T, redisClient *redis.Client, 
 			}).Result()
 			require.NoError(c, err)
 
-			assert.Len(c, res, 1)
-			assert.NotEmpty(c, res[0].Messages)
+			require.Len(c, res, 1)
+			require.NotEmpty(c, res[0].Messages)
 
 			var match bool
 			for _, m := range res[0].Messages {
 				payload, ok := m.Values["payload"].(string)
 				require.True(c, ok)
 
-				var actual event.TicketPrinted
+				var actual TicketPrinted
 				err = json.Unmarshal([]byte(payload), &actual)
 				require.NoError(c, err)
 
