@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"tickets/entity"
@@ -53,7 +54,7 @@ type createBookingResponse struct {
 }
 
 type BookingRepo interface {
-	Add(ctx context.Context, booking entity.Booking) error
+	Add(ctx context.Context, ticketsAvailable uint, booking entity.Booking) error
 }
 
 type Publisher interface {
@@ -62,10 +63,16 @@ type Publisher interface {
 
 type ShowRepo interface {
 	Add(ctx context.Context, show entity.Show) error
+	Get(ctx context.Context, showID string) (entity.Show, error)
 }
 
 type TicketRepo interface {
 	List(ctx context.Context) ([]entity.Ticket, error)
+}
+
+type notEnoughTicketsError interface {
+	error
+	NotEnoughTickets() bool
 }
 
 type handler struct {
@@ -179,6 +186,11 @@ func (h handler) CreateBooking(c echo.Context) error {
 		}
 	}
 
+	show, err := h.showRepo.Get(c.Request().Context(), reqBody.ShowID)
+	if err != nil {
+		return fmt.Errorf("getting show: %w", err)
+	}
+
 	booking := entity.Booking{
 		BookingID:       uuid.NewString(),
 		CustomerEmail:   reqBody.CustomerEmail,
@@ -186,7 +198,17 @@ func (h handler) CreateBooking(c echo.Context) error {
 		ShowID:          reqBody.ShowID,
 	}
 
-	if err := h.bookingRepo.Add(c.Request().Context(), booking); err != nil {
+	err = h.bookingRepo.Add(c.Request().Context(), show.NumberOfTickets, booking)
+	var notEnoughTicketsErr notEnoughTicketsError
+	if errors.As(err, &notEnoughTicketsErr) {
+		return &echo.HTTPError{
+			Code:     http.StatusBadRequest,
+			Message:  "Not enough tickets",
+			Internal: fmt.Errorf("adding booking: %w", err),
+		}
+	}
+
+	if err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusInternalServerError,
 			Message:  http.StatusText(http.StatusInternalServerError),
