@@ -58,7 +58,7 @@ func New(deps ServiceDeps) (*Service, error) {
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	bookingRepo := postgres.NewBookingRepo(deps.DB, deps.Logger)
+	bookingRepo := postgres.NewBookingRepo(deps.DB)
 	showRepo := postgres.NewShowRepo(deps.DB)
 	ticketRepo := postgres.NewTicketRepo(deps.DB)
 

@@ -3,12 +3,12 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"tickets/entity"
 	"tickets/event"
 	"tickets/message"
 
-	"github.com/ThreeDotsLabs/watermill"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -38,14 +38,12 @@ func CreateBookingsTable(ctx context.Context, db *sqlx.DB) error {
 }
 
 type BookingRepo struct {
-	db     *sqlx.DB
-	logger watermill.LoggerAdapter
+	db *sqlx.DB
 }
 
-func NewBookingRepo(db *sqlx.DB, logger watermill.LoggerAdapter) BookingRepo {
+func NewBookingRepo(db *sqlx.DB) BookingRepo {
 	return BookingRepo{
-		db:     db,
-		logger: logger,
+		db: db,
 	}
 }
 
@@ -57,15 +55,23 @@ func (r BookingRepo) Add(ctx context.Context, totalTickets uint, booking entity.
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 
-	row := tx.QueryRowContext(ctx, `SELECT SUM(number_of_tickets) FROM bookings WHERE show_id = $1`, booking.ShowID)
-	var sum *uint
-	if err := row.Scan(&sum); err != nil {
-		return fmt.Errorf("counting tickets booked: %w", err)
+	if err := add(ctx, tx, totalTickets, booking); err != nil {
+		return errors.Join(err, tx.Rollback())
 	}
 
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return nil
+}
+
+func add(ctx context.Context, tx *sql.Tx, totalTickets uint, booking entity.Booking) error {
+	row := tx.QueryRowContext(ctx, `SELECT coalesce(SUM(number_of_tickets), 0)
+		FROM bookings WHERE show_id = $1`, booking.ShowID)
 	var ticketsBooked uint
-	if sum != nil {
-		ticketsBooked = *sum
+	if err := row.Scan(&ticketsBooked); err != nil {
+		return fmt.Errorf("counting tickets booked: %w", err)
 	}
 
 	ticketsAvailable := totalTickets - ticketsBooked
@@ -76,7 +82,7 @@ func (r BookingRepo) Add(ctx context.Context, totalTickets uint, booking entity.
 		}
 	}
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO bookings
+	_, err := tx.ExecContext(ctx, `INSERT INTO bookings
 		(booking_id, show_id, number_of_tickets, customer_email)
 		VALUES ($1, $2, $3, $4);`,
 		booking.BookingID, booking.ShowID, booking.NumberOfTickets, booking.CustomerEmail)
@@ -86,12 +92,8 @@ func (r BookingRepo) Add(ctx context.Context, totalTickets uint, booking entity.
 
 	e := event.NewBookingMade(uuid.NewString(), booking)
 
-	if err := message.PublishInTx(ctx, e, tx, r.logger); err != nil {
+	if err := message.PublishInTx(ctx, e, tx); err != nil {
 		return fmt.Errorf("publishing event in transaction: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
 	}
 
 	return nil

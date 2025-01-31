@@ -61,14 +61,13 @@ func PublishInTx(
 	ctx context.Context,
 	event any,
 	tx *sql.Tx,
-	logger watermill.LoggerAdapter,
 ) error {
 	sqlPublisher, err := watermillSQL.NewPublisher(
 		tx,
 		watermillSQL.PublisherConfig{
 			SchemaAdapter: watermillSQL.DefaultPostgreSQLSchema{},
 		},
-		logger,
+		log.NewWatermill(log.FromContext(ctx)),
 	)
 	if err != nil {
 		return fmt.Errorf("creating sql publisher: %w", err)
