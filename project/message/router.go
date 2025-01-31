@@ -13,10 +13,12 @@ import (
 )
 
 type RouterDeps struct {
+	DeadNationBooker    DeadNationBooker
 	Logger              watermill.LoggerAdapter
 	Publisher           Publisher
 	ReceiptIssuer       ReceiptIssuer
 	RedisClient         *redis.Client
+	ShowRepo            ShowRepo
 	SpreadsheetAppender SpreadsheetAppender
 	TicketGenerator     TicketGenerator
 	TicketRepo          TicketRepo
@@ -66,6 +68,7 @@ func NewRouter(deps RouterDeps) (*Router, error) {
 	}
 
 	handlers := []cqrs.EventHandler{
+		cqrs.NewEventHandler("create-dead-nation-booking", handleCreateDeadNationBooking(deps.ShowRepo, deps.DeadNationBooker)),
 		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(deps.ReceiptIssuer)),
 		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(deps.SpreadsheetAppender)),
 		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(deps.SpreadsheetAppender)),

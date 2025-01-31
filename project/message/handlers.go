@@ -7,6 +7,14 @@ import (
 	"tickets/event"
 )
 
+type ShowRepo interface {
+	Get(ctx context.Context, showID string) (entity.Show, error)
+}
+
+type DeadNationBooker interface {
+	CreateBooking(ctx context.Context, deadNationID string, booking entity.Booking) error
+}
+
 type Publisher interface {
 	Publish(ctx context.Context, event any) error
 }
@@ -26,6 +34,27 @@ type TicketGenerator interface {
 type TicketRepo interface {
 	Add(ctx context.Context, ticket entity.Ticket) error
 	Delete(ctx context.Context, ticketID string) error
+}
+
+func handleCreateDeadNationBooking(r ShowRepo, b DeadNationBooker) func(ctx context.Context, e *event.BookingMade) error {
+	return func(ctx context.Context, e *event.BookingMade) error {
+		show, err := r.Get(ctx, e.ShowID)
+		if err != nil {
+			return fmt.Errorf("getting show: %w", err)
+		}
+
+		booking := entity.Booking{
+			BookingID:       e.BookingID,
+			CustomerEmail:   e.CustomerEmail,
+			NumberOfTickets: e.NumberOfTickets,
+			ShowID:          e.ShowID,
+		}
+		if err := b.CreateBooking(ctx, show.DeadNationID, booking); err != nil {
+			return fmt.Errorf("creating dead nation booking: %w", err)
+		}
+
+		return nil
+	}
 }
 
 func handleIssueReceipt(r ReceiptIssuer) func(ctx context.Context, e *event.TicketBookingConfirmed) error {

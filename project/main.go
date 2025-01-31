@@ -27,20 +27,16 @@ func main() {
 }
 
 func run(logger watermill.LoggerAdapter) error {
-	c, err := clients.New(os.Getenv("GATEWAY_ADDR"))
+	gatewayClient, err := clients.New(os.Getenv("GATEWAY_ADDR"))
 	if err != nil {
 		return fmt.Errorf("creating gateway client: %w", err)
 	}
 
-	ticketGenerator := clients.NewFilesClient(c)
-	receiptsClient := clients.NewReceiptsClient(c)
-	spreadsheetsClient := clients.NewSpreadsheetsClient(c)
-
-	rdb := redis.NewClient(&redis.Options{
+	redisClient := redis.NewClient(&redis.Options{
 		Addr: os.Getenv("REDIS_ADDR"),
 	})
 	defer func() {
-		if err := rdb.Conn().Close(); err != nil {
+		if err := redisClient.Conn().Close(); err != nil {
 			logger.Error("failed to close redis connection", err, nil)
 		}
 	}()
@@ -62,7 +58,20 @@ func run(logger watermill.LoggerAdapter) error {
 		return fmt.Errorf("initialising db: %w", err)
 	}
 
-	svc, err := service.New(logger, rdb, dbConn, ticketGenerator, receiptsClient, spreadsheetsClient)
+	deadNationBooker := clients.NewDeadNationClient(gatewayClient)
+	ticketGenerator := clients.NewFilesClient(gatewayClient)
+	receiptIssuer := clients.NewReceiptsClient(gatewayClient)
+	spreadsheetAppender := clients.NewSpreadsheetsClient(gatewayClient)
+
+	svc, err := service.New(service.ServiceDeps{
+		Logger:              logger,
+		DBConn:              dbConn,
+		RedisClient:         redisClient,
+		DeadNationBooker:    deadNationBooker,
+		TicketGenerator:     ticketGenerator,
+		ReceiptIssuer:       receiptIssuer,
+		SpreadsheetAppender: spreadsheetAppender,
+	})
 	if err != nil {
 		return fmt.Errorf("creating service: %w", err)
 	}

@@ -12,7 +12,6 @@ import (
 	"tickets/service"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/lithammer/shortuuid/v3"
@@ -53,15 +52,14 @@ func setupDB(t *testing.T) *sqlx.DB {
 	return conn
 }
 
-func startService(t *testing.T, redisClient *redis.Client, dbConn *sqlx.DB, receiptIssuer *MockReceiptIssuer, spreadsheetAppender *MockSpreadsheetAppender, ticketGenerator *MockTicketGenerator) {
+func startService(t *testing.T, deps service.ServiceDeps) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	go func() {
-		logger := watermill.NewStdLogger(false, false)
-		svc, err := service.New(logger, redisClient, dbConn, ticketGenerator, receiptIssuer, spreadsheetAppender)
+		svc, err := service.New(deps)
 		assert.NoError(t, err)
 
 		assert.NoError(t, svc.Run(ctx))

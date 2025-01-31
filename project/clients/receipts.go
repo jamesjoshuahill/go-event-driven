@@ -6,17 +6,16 @@ import (
 	"net/http"
 	"tickets/entity"
 
-	"github.com/ThreeDotsLabs/go-event-driven/common/clients"
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients/receipts"
 )
 
 type ReceiptsClient struct {
-	clients *clients.Clients
+	client receipts.ClientWithResponsesInterface
 }
 
-func NewReceiptsClient(clients *clients.Clients) ReceiptsClient {
+func NewReceiptsClient(c *Clients) ReceiptsClient {
 	return ReceiptsClient{
-		clients: clients,
+		client: c.Receipts,
 	}
 }
 
@@ -30,13 +29,13 @@ func (c ReceiptsClient) IssueReceipt(ctx context.Context, idempotencyKey, ticket
 		},
 	}
 
-	res, err := c.clients.Receipts.PutReceiptsWithResponse(ctx, body)
+	res, err := c.client.PutReceiptsWithResponse(ctx, body)
 	if err != nil {
 		return fmt.Errorf("put receipt request: %w", err)
 	}
 
 	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %v", res.StatusCode())
+		return fmt.Errorf("unexpected status code: %d", res.StatusCode())
 	}
 
 	return nil

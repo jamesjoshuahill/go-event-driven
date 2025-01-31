@@ -2,18 +2,30 @@ package tests_test
 
 import (
 	"testing"
+	"tickets/service"
 
+	"github.com/ThreeDotsLabs/watermill"
 	"github.com/google/uuid"
 )
 
 func TestComponent(t *testing.T) {
-	redisClient := setupRedis(t)
 	dbConn := setupDB(t)
+	redisClient := setupRedis(t)
+	deadNationBooker := &MockDeadNationBooker{}
 	receiptIssuer := &MockReceiptIssuer{}
 	spreadsheetAppender := &MockSpreadsheetAppender{}
 	ticketGenerator := &MockTicketGenerator{}
 
-	startService(t, redisClient, dbConn, receiptIssuer, spreadsheetAppender, ticketGenerator)
+	deps := service.ServiceDeps{
+		DBConn:              dbConn,
+		Logger:              watermill.NewStdLogger(false, false),
+		RedisClient:         redisClient,
+		DeadNationBooker:    deadNationBooker,
+		ReceiptIssuer:       receiptIssuer,
+		SpreadsheetAppender: spreadsheetAppender,
+		TicketGenerator:     ticketGenerator,
+	}
+	startService(t, deps)
 
 	t.Run("confimed ticket", func(t *testing.T) {
 		ticket := TicketStatus{

@@ -29,7 +29,7 @@ type Show struct {
 
 type Booking struct {
 	BookingID       string
-	ShowID          string
-	NumberOfTickets uint
 	CustomerEmail   string
+	NumberOfTickets uint
+	ShowID          string
 }

@@ -5,17 +5,16 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/ThreeDotsLabs/go-event-driven/common/clients"
 	"github.com/ThreeDotsLabs/go-event-driven/common/clients/spreadsheets"
 )
 
 type SpreadsheetsClient struct {
-	clients *clients.Clients
+	client spreadsheets.ClientWithResponsesInterface
 }
 
-func NewSpreadsheetsClient(clients *clients.Clients) SpreadsheetsClient {
+func NewSpreadsheetsClient(c *Clients) SpreadsheetsClient {
 	return SpreadsheetsClient{
-		clients: clients,
+		client: c.Spreadsheets,
 	}
 }
 
@@ -24,13 +23,13 @@ func (c SpreadsheetsClient) AppendRow(ctx context.Context, spreadsheetName strin
 		Columns: row,
 	}
 
-	res, err := c.clients.Spreadsheets.PostSheetsSheetRowsWithResponse(ctx, spreadsheetName, request)
+	res, err := c.client.PostSheetsSheetRowsWithResponse(ctx, spreadsheetName, request)
 	if err != nil {
 		return err
 	}
 
 	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %v", res.StatusCode())
+		return fmt.Errorf("unexpected status code: %d", res.StatusCode())
 	}
 
 	return nil

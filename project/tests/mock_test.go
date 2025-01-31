@@ -115,3 +115,9 @@ func (m *MockSpreadsheetAppender) RequestFor(spreadsheetName, ticketID string) (
 
 	return match, ok
 }
+
+type MockDeadNationBooker struct{}
+
+func (m *MockDeadNationBooker) CreateBooking(ctx context.Context, booking entity.Booking) error {
+	return nil
+}

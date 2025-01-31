@@ -9,7 +9,11 @@ import (
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 )
 
-func New(gatewayAddress string) (*clients.Clients, error) {
+type Clients struct {
+	*clients.Clients
+}
+
+func New(gatewayAddress string) (*Clients, error) {
 	c, err := clients.NewClients(gatewayAddress, func(ctx context.Context, req *http.Request) error {
 		req.Header.Set("Correlation-ID", log.CorrelationIDFromContext(ctx))
 		return nil
@@ -18,5 +22,5 @@ func New(gatewayAddress string) (*clients.Clients, error) {
 		return nil, fmt.Errorf("creating gateway client: %w", err)
 	}
 
-	return c, nil
+	return &Clients{c}, nil
 }

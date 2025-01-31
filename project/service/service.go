@@ -20,23 +20,26 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type ServiceDeps struct {
+	DBConn              *sqlx.DB
+	Logger              watermill.LoggerAdapter
+	RedisClient         *redis.Client
+	DeadNationBooker    message.DeadNationBooker
+	TicketGenerator     message.TicketGenerator
+	ReceiptIssuer       message.ReceiptIssuer
+	SpreadsheetAppender message.SpreadsheetAppender
+}
+
 type Service struct {
 	msgForwarder *message.Forwarder
 	msgRouter    *message.Router
 	httpRouter   *echo.Echo
 }
 
-func New(
-	logger watermill.LoggerAdapter,
-	redisClient *redis.Client,
-	dbConn *sqlx.DB,
-	ticketGenerator message.TicketGenerator,
-	receiptIssuer message.ReceiptIssuer,
-	spreadsheetAppender message.SpreadsheetAppender,
-) (*Service, error) {
+func New(deps ServiceDeps) (*Service, error) {
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
-		Client: redisClient,
-	}, logger)
+		Client: deps.RedisClient,
+	}, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating publisher: %w", err)
 	}
@@ -54,29 +57,31 @@ func New(
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	bookingRepo := db.NewBookingRepo(dbConn, logger)
-	showRepo := db.NewShowRepo(dbConn)
-	ticketRepo := db.NewTicketRepo(dbConn)
+	bookingRepo := db.NewBookingRepo(deps.DBConn, deps.Logger)
+	showRepo := db.NewShowRepo(deps.DBConn)
+	ticketRepo := db.NewTicketRepo(deps.DBConn)
 
 	msgRouter, err := message.NewRouter(message.RouterDeps{
-		Logger:              logger,
+		DeadNationBooker:    deps.DeadNationBooker,
+		Logger:              deps.Logger,
 		Publisher:           eventBus,
-		ReceiptIssuer:       receiptIssuer,
-		RedisClient:         redisClient,
-		SpreadsheetAppender: spreadsheetAppender,
-		TicketGenerator:     ticketGenerator,
+		ReceiptIssuer:       deps.ReceiptIssuer,
+		RedisClient:         deps.RedisClient,
+		ShowRepo:            showRepo,
+		SpreadsheetAppender: deps.SpreadsheetAppender,
+		TicketGenerator:     deps.TicketGenerator,
 		TicketRepo:          ticketRepo,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	msgForwarder, err := message.NewForwarder(dbConn, redisClient, logger)
+	msgForwarder, err := message.NewForwarder(deps.DBConn, deps.RedisClient, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating message forwarder: %w", err)
 	}
 
-	httpRouter := http.NewRouter(dbConn, bookingRepo, logger, eventBus, showRepo, ticketRepo)
+	httpRouter := http.NewRouter(deps.DBConn, bookingRepo, deps.Logger, eventBus, showRepo, ticketRepo)
 
 	return &Service{
 		msgForwarder: msgForwarder,

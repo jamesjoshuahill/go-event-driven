@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"tickets/entity"
 
-	"github.com/ThreeDotsLabs/go-event-driven/common/clients"
+	"github.com/ThreeDotsLabs/go-event-driven/common/clients/files"
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 )
 
@@ -17,12 +17,12 @@ Price currency: %s
 </body></html>`
 
 type FilesClient struct {
-	clients *clients.Clients
+	client files.ClientWithResponsesInterface
 }
 
-func NewFilesClient(clients *clients.Clients) FilesClient {
+func NewFilesClient(c *Clients) FilesClient {
 	return FilesClient{
-		clients: clients,
+		client: c.Files,
 	}
 }
 
@@ -30,7 +30,7 @@ func (c FilesClient) GenerateTicket(ctx context.Context, ticketID string, price 
 	fileID := fmt.Sprintf("%s-ticket.html", ticketID)
 	fileContent := fmt.Sprintf(printTicketFileTemplate, ticketID, price.Amount, price.Currency)
 
-	res, err := c.clients.Files.PutFilesFileIdContentWithTextBodyWithResponse(ctx, fileID, fileContent)
+	res, err := c.client.PutFilesFileIdContentWithTextBodyWithResponse(ctx, fileID, fileContent)
 	if err != nil {
 		return "", fmt.Errorf("put file request: %w", err)
 	}
@@ -41,7 +41,7 @@ func (c FilesClient) GenerateTicket(ctx context.Context, ticketID string, price 
 	}
 
 	if res.StatusCode() != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %v", res.StatusCode())
+		return "", fmt.Errorf("unexpected status code: %d", res.StatusCode())
 	}
 
 	return fileID, nil
