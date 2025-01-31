@@ -1,18 +1,21 @@
 package message
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
 	watermillSQL "github.com/ThreeDotsLabs/watermill-sql/v2/pkg/sql"
+	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/ThreeDotsLabs/watermill/components/forwarder"
 	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
 )
 
-const OutboxTopic = "events_to_forward"
+const outboxTopic = "events_to_forward"
 
 type Forwarder struct {
 	*forwarder.Forwarder
@@ -21,7 +24,6 @@ type Forwarder struct {
 func NewForwarder(
 	db *sqlx.DB,
 	rdb *redis.Client,
-	outboxTopic string,
 	logger watermill.LoggerAdapter,
 ) (*Forwarder, error) {
 	subscriber, err := watermillSQL.NewSubscriber(db, watermillSQL.SubscriberConfig{
@@ -53,4 +55,46 @@ func NewForwarder(
 	}
 
 	return &Forwarder{f}, nil
+}
+
+func PublishInTx(
+	ctx context.Context,
+	event any,
+	tx *sql.Tx,
+	logger watermill.LoggerAdapter,
+) error {
+	sqlPublisher, err := watermillSQL.NewPublisher(
+		tx,
+		watermillSQL.PublisherConfig{
+			SchemaAdapter: watermillSQL.DefaultPostgreSQLSchema{},
+		},
+		logger,
+	)
+	if err != nil {
+		return fmt.Errorf("creating sql publisher: %w", err)
+	}
+
+	publisher := forwarder.NewPublisher(sqlPublisher, forwarder.PublisherConfig{
+		ForwarderTopic: outboxTopic,
+	})
+
+	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
+
+	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
+		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
+			return params.EventName, nil
+		},
+		Marshaler: cqrs.JSONMarshaler{
+			GenerateName: cqrs.StructName,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating sql event bus: %w", err)
+	}
+
+	if err := eventBus.Publish(ctx, event); err != nil {
+		return fmt.Errorf("publishing event: %w", err)
+	}
+
+	return nil
 }

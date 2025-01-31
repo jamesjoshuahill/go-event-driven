@@ -71,7 +71,7 @@ func New(
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	msgForwarder, err := message.NewForwarder(dbConn, redisClient, message.OutboxTopic, logger)
+	msgForwarder, err := message.NewForwarder(dbConn, redisClient, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating message forwarder: %w", err)
 	}
@@ -97,7 +97,7 @@ func (s Service) Run(ctx context.Context) error {
 	})
 
 	g.Go(func() error {
-		if err := s.msgForwarder.Run(context.Background()); err != nil {
+		if err := s.msgForwarder.Run(runCtx); err != nil {
 			return fmt.Errorf("running message forwarder: %w", err)
 		}
 
@@ -109,7 +109,7 @@ func (s Service) Run(ctx context.Context) error {
 		<-s.msgRouter.Running()
 		<-s.msgForwarder.Running()
 
-		logrus.Info("Starting HTTP server...")
+		logrus.Info("starting http server...")
 		err := s.httpRouter.Start(":8080")
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("starting http server: %w", err)
@@ -124,7 +124,7 @@ func (s Service) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		logrus.Info("Shutting down HTTP server...")
+		logrus.Info("shutting down http server...")
 		if err := s.httpRouter.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutting down http server: %w", err)
 		}
@@ -135,7 +135,7 @@ func (s Service) Run(ctx context.Context) error {
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("waiting for shutdown: %w", err)
 	}
-	logrus.Info("Shutdown complete.")
+	logrus.Info("shutdown complete")
 
 	return nil
 }
