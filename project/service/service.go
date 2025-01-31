@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"tickets/db"
 	"tickets/http"
 	"tickets/message"
+	"tickets/postgres"
 	"time"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
@@ -21,7 +21,7 @@ import (
 )
 
 type ServiceDeps struct {
-	DBConn              *sqlx.DB
+	DB                  *sqlx.DB
 	Logger              watermill.LoggerAdapter
 	RedisClient         *redis.Client
 	DeadNationBooker    message.DeadNationBooker
@@ -31,6 +31,7 @@ type ServiceDeps struct {
 }
 
 type Service struct {
+	db           *sqlx.DB
 	msgForwarder *message.Forwarder
 	msgRouter    *message.Router
 	httpRouter   *echo.Echo
@@ -57,9 +58,9 @@ func New(deps ServiceDeps) (*Service, error) {
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	bookingRepo := db.NewBookingRepo(deps.DBConn, deps.Logger)
-	showRepo := db.NewShowRepo(deps.DBConn)
-	ticketRepo := db.NewTicketRepo(deps.DBConn)
+	bookingRepo := postgres.NewBookingRepo(deps.DB, deps.Logger)
+	showRepo := postgres.NewShowRepo(deps.DB)
+	ticketRepo := postgres.NewTicketRepo(deps.DB)
 
 	msgRouter, err := message.NewRouter(message.RouterDeps{
 		DeadNationBooker:    deps.DeadNationBooker,
@@ -76,14 +77,15 @@ func New(deps ServiceDeps) (*Service, error) {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}
 
-	msgForwarder, err := message.NewForwarder(deps.DBConn, deps.RedisClient, deps.Logger)
+	msgForwarder, err := message.NewForwarder(deps.DB, deps.RedisClient, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating message forwarder: %w", err)
 	}
 
-	httpRouter := http.NewRouter(deps.DBConn, bookingRepo, deps.Logger, eventBus, showRepo, ticketRepo)
+	httpRouter := http.NewRouter(deps.DB, bookingRepo, deps.Logger, eventBus, showRepo, ticketRepo)
 
 	return &Service{
+		db:           deps.DB,
 		msgForwarder: msgForwarder,
 		msgRouter:    msgRouter,
 		httpRouter:   httpRouter,
@@ -91,6 +93,10 @@ func New(deps ServiceDeps) (*Service, error) {
 }
 
 func (s Service) Run(ctx context.Context) error {
+	if err := postgres.InitialiseDB(ctx, s.db); err != nil {
+		return fmt.Errorf("initialising db: %w", err)
+	}
+
 	g, runCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {

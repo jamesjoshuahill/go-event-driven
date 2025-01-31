@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"tickets/db"
 	"tickets/service"
 	"time"
 
@@ -41,15 +40,13 @@ func setupRedis(t *testing.T) *redis.Client {
 
 func setupDB(t *testing.T) *sqlx.DB {
 	dsn := getEnvOrDefault("POSTGRES_URL", "postgres://user:password@localhost:5432/db?sslmode=disable")
-	conn, err := sqlx.Open("postgres", dsn)
+	db, err := sqlx.Open("postgres", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		assert.NoError(t, conn.Close())
+		assert.NoError(t, db.Close())
 	})
 
-	require.NoError(t, db.InitialiseDB(context.Background(), conn))
-
-	return conn
+	return db
 }
 
 func startService(t *testing.T, deps service.ServiceDeps) {

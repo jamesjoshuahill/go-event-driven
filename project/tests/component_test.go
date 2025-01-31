@@ -9,7 +9,7 @@ import (
 )
 
 func TestComponent(t *testing.T) {
-	dbConn := setupDB(t)
+	db := setupDB(t)
 	redisClient := setupRedis(t)
 	deadNationBooker := &MockDeadNationBooker{}
 	receiptIssuer := &MockReceiptIssuer{}
@@ -17,7 +17,7 @@ func TestComponent(t *testing.T) {
 	ticketGenerator := &MockTicketGenerator{}
 
 	deps := service.ServiceDeps{
-		DBConn:              dbConn,
+		DB:                  db,
 		Logger:              watermill.NewStdLogger(false, false),
 		RedisClient:         redisClient,
 		DeadNationBooker:    deadNationBooker,
@@ -49,7 +49,7 @@ func TestComponent(t *testing.T) {
 		sendTicketsStatus(t, req, idempotencyKey)
 		assertReceiptForTicketIssued(t, receiptIssuer, ticket)
 		assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
-		assertStoredTicketInDB(t, dbConn, ticket)
+		assertStoredTicketInDB(t, db, ticket)
 		assertTicketGenerated(t, ticketGenerator, ticket)
 		assertTicketPrintedEventPublished(t, redisClient, ticket)
 	})

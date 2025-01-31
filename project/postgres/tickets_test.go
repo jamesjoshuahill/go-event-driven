@@ -1,12 +1,12 @@
-package db_test
+package postgres_test
 
 import (
 	"context"
 	"log"
 	"os"
 	"testing"
-	"tickets/db"
 	"tickets/entity"
+	"tickets/postgres"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -14,24 +14,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var dbConn *sqlx.DB
+var db *sqlx.DB
 
 func TestMain(m *testing.M) {
 	dsn := getEnvOrDefault("POSTGRES_URL", "postgres://user:password@localhost:5432/db?sslmode=disable")
 
 	var err error
-	dbConn, err = sqlx.Open("postgres", dsn)
+	db, err = sqlx.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("failed to connect to db: %s", err)
 	}
 
-	if err := db.CreateTicketsTable(context.Background(), dbConn); err != nil {
+	if err := postgres.CreateTicketsTable(context.Background(), db); err != nil {
 		log.Fatalf("failed to create tickets table: %s", err)
 	}
 
 	code := m.Run()
 
-	if err := dbConn.Close(); err != nil {
+	if err := db.Close(); err != nil {
 		log.Fatalf("failed to close db connection: %s", err)
 	}
 
@@ -48,7 +48,7 @@ func TestTicketRepo_Add(t *testing.T) {
 		},
 		CustomerEmail: "test@example.com",
 	}
-	r := db.NewTicketRepo(dbConn)
+	r := postgres.NewTicketRepo(db)
 	require.NoError(t, r.Add(ctx, ticket))
 	require.NoError(t, r.Add(ctx, ticket))
 

@@ -181,9 +181,9 @@ func (h handler) CreateBooking(c echo.Context) error {
 
 	booking := entity.Booking{
 		BookingID:       uuid.NewString(),
-		ShowID:          reqBody.ShowID,
-		NumberOfTickets: reqBody.NumberOfTickets,
 		CustomerEmail:   reqBody.CustomerEmail,
+		NumberOfTickets: reqBody.NumberOfTickets,
+		ShowID:          reqBody.ShowID,
 	}
 
 	if err := h.bookingRepo.Add(c.Request().Context(), booking); err != nil {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"tickets/clients"
-	"tickets/db"
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
@@ -54,10 +53,6 @@ func run(logger watermill.LoggerAdapter) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	if err := db.InitialiseDB(ctx, dbConn); err != nil {
-		return fmt.Errorf("initialising db: %w", err)
-	}
-
 	deadNationBooker := clients.NewDeadNationClient(gatewayClient)
 	ticketGenerator := clients.NewFilesClient(gatewayClient)
 	receiptIssuer := clients.NewReceiptsClient(gatewayClient)
@@ -65,7 +60,7 @@ func run(logger watermill.LoggerAdapter) error {
 
 	svc, err := service.New(service.ServiceDeps{
 		Logger:              logger,
-		DBConn:              dbConn,
+		DB:                  dbConn,
 		RedisClient:         redisClient,
 		DeadNationBooker:    deadNationBooker,
 		TicketGenerator:     ticketGenerator,
