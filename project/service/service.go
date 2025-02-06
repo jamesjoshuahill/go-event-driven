@@ -53,9 +53,23 @@ func New(deps ServiceDeps) (*Service, error) {
 		Marshaler: cqrs.JSONMarshaler{
 			GenerateName: cqrs.StructName,
 		},
+		Logger: deps.Logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating event bus: %w", err)
+	}
+
+	commandBus, err := cqrs.NewCommandBusWithConfig(decoratedPublisher, cqrs.CommandBusConfig{
+		GeneratePublishTopic: func(params cqrs.CommandBusGeneratePublishTopicParams) (string, error) {
+			return params.CommandName, nil
+		},
+		Marshaler: cqrs.JSONMarshaler{
+			GenerateName: cqrs.StructName,
+		},
+		Logger: deps.Logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating command bus: %w", err)
 	}
 
 	bookingRepo := postgres.NewBookingRepo(deps.DB)
@@ -82,7 +96,15 @@ func New(deps ServiceDeps) (*Service, error) {
 		return nil, fmt.Errorf("creating message forwarder: %w", err)
 	}
 
-	httpRouter := http.NewRouter(deps.DB, bookingRepo, deps.Logger, eventBus, showRepo, ticketRepo)
+	httpRouter := http.NewRouter(http.RouterDeps{
+		BookingRepo:    bookingRepo,
+		CommandSender:  commandBus,
+		DB:             deps.DB,
+		EventPublisher: eventBus,
+		Logger:         deps.Logger,
+		ShowRepo:       showRepo,
+		TicketRepo:     ticketRepo,
+	})
 
 	return &Service{
 		db:           deps.DB,

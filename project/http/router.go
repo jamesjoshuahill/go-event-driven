@@ -11,14 +11,17 @@ import (
 
 var ErrServerClosed = http.ErrServerClosed
 
-func NewRouter(
-	db *sqlx.DB,
-	bookingRepo BookingRepo,
-	logger watermill.LoggerAdapter,
-	publisher Publisher,
-	showRepo ShowRepo,
-	ticketRepo TicketRepo,
-) *echo.Echo {
+type RouterDeps struct {
+	BookingRepo    BookingRepo
+	CommandSender  CommandSender
+	DB             *sqlx.DB
+	EventPublisher EventPublisher
+	Logger         watermill.LoggerAdapter
+	ShowRepo       ShowRepo
+	TicketRepo     TicketRepo
+}
+
+func NewRouter(deps RouterDeps) *echo.Echo {
 	server := commonHTTP.NewEcho()
 
 	server.GET("/health", func(c echo.Context) error {
@@ -26,18 +29,20 @@ func NewRouter(
 	})
 
 	handler := handler{
-		db:          db,
-		bookingRepo: bookingRepo,
-		logger:      logger,
-		publisher:   publisher,
-		showRepo:    showRepo,
-		ticketRepo:  ticketRepo,
+		bookingRepo:    deps.BookingRepo,
+		commandSender:  deps.CommandSender,
+		db:             deps.DB,
+		eventPublisher: deps.EventPublisher,
+		logger:         deps.Logger,
+		showRepo:       deps.ShowRepo,
+		ticketRepo:     deps.TicketRepo,
 	}
 
 	server.POST("/shows", handler.CreateShow)
 	server.POST("/book-tickets", handler.CreateBooking)
 	server.POST("/tickets-status", handler.CreateTicketStatus)
 	server.GET("/tickets", handler.ListTickets)
+	server.PUT("/ticket-refund/:ticket_id", handler.RefundTicket)
 
 	return server
 }

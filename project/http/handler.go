@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"tickets/command"
 	"tickets/entity"
 	"tickets/event"
 	"time"
@@ -57,7 +58,11 @@ type BookingRepo interface {
 	Add(ctx context.Context, ticketsAvailable uint, booking entity.Booking) error
 }
 
-type Publisher interface {
+type CommandSender interface {
+	Send(ctx context.Context, cmd any) error
+}
+
+type EventPublisher interface {
 	Publish(ctx context.Context, event any) error
 }
 
@@ -76,12 +81,13 @@ type notEnoughTicketsError interface {
 }
 
 type handler struct {
-	db          *sqlx.DB
-	bookingRepo BookingRepo
-	logger      watermill.LoggerAdapter
-	publisher   Publisher
-	showRepo    ShowRepo
-	ticketRepo  TicketRepo
+	bookingRepo    BookingRepo
+	commandSender  CommandSender
+	db             *sqlx.DB
+	eventPublisher EventPublisher
+	logger         watermill.LoggerAdapter
+	showRepo       ShowRepo
+	ticketRepo     TicketRepo
 }
 
 func (h handler) CreateTicketStatus(c echo.Context) error {
@@ -119,7 +125,7 @@ func (h handler) CreateTicketStatus(c echo.Context) error {
 			e = event.NewTicketBookingCanceled(ticketIdempotencyKey, ticket)
 		}
 
-		if err := h.publisher.Publish(c.Request().Context(), e); err != nil {
+		if err := h.eventPublisher.Publish(c.Request().Context(), e); err != nil {
 			return &echo.HTTPError{
 				Code:     http.StatusInternalServerError,
 				Message:  http.StatusText(http.StatusInternalServerError),
@@ -219,6 +225,23 @@ func (h handler) CreateBooking(c echo.Context) error {
 	return c.JSON(http.StatusCreated, createBookingResponse{
 		BookingID: booking.BookingID,
 	})
+}
+
+func (h handler) RefundTicket(c echo.Context) error {
+	cmd := command.RefundTicket{
+		TicketID: c.Param("ticket_id"),
+	}
+
+	err := h.commandSender.Send(c.Request().Context(), cmd)
+	if err != nil {
+		return &echo.HTTPError{
+			Code:     http.StatusInternalServerError,
+			Message:  http.StatusText(http.StatusInternalServerError),
+			Internal: fmt.Errorf("publishing refund ticket command: %w", err),
+		}
+	}
+
+	return c.NoContent(http.StatusAccepted)
 }
 
 func getIdempotencyKey(c echo.Context) (string, error) {
