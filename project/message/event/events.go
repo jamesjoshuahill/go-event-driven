@@ -1,8 +1,9 @@
 package event
 
 import (
-	"tickets/entity"
 	"time"
+
+	"tickets/entity"
 
 	"github.com/ThreeDotsLabs/watermill"
 )

@@ -54,21 +54,21 @@ func run(logger watermill.LoggerAdapter) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	deadNationBooker := clients.NewDeadNationClient(gatewayClient)
-	ticketGenerator := clients.NewFilesClient(gatewayClient)
-	ticketRefunder := clients.NewPaymentsClient(gatewayClient)
+	deadNationClient := clients.NewDeadNationClient(gatewayClient)
+	filesClient := clients.NewFilesClient(gatewayClient)
+	paymentsClient := clients.NewPaymentsClient(gatewayClient)
 	receiptsClient := clients.NewReceiptsClient(gatewayClient)
-	spreadsheetAppender := clients.NewSpreadsheetsClient(gatewayClient)
+	spreadsheetsClient := clients.NewSpreadsheetsClient(gatewayClient)
 
-	svc, err := service.New(service.ServiceDeps{
-		Logger:              logger,
-		DB:                  dbConn,
-		RedisClient:         redisClient,
-		DeadNationBooker:    deadNationBooker,
-		TicketGenerator:     ticketGenerator,
-		TicketRefunder:      ticketRefunder,
-		ReceiptsClient:      receiptsClient,
-		SpreadsheetAppender: spreadsheetAppender,
+	svc, err := service.New(service.Deps{
+		DB:                 dbConn,
+		DeadNationBooker:   deadNationClient,
+		Logger:             logger,
+		PaymentsClient:     paymentsClient,
+		ReceiptsClient:     receiptsClient,
+		RedisClient:        redisClient,
+		SpreadsheetsClient: spreadsheetsClient,
+		FilesClient:        filesClient,
 	})
 	if err != nil {
 		return fmt.Errorf("creating service: %w", err)

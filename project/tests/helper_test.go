@@ -50,7 +50,7 @@ func setupDB(t *testing.T) *sqlx.DB {
 	return db
 }
 
-func startService(t *testing.T, deps service.ServiceDeps) {
+func startService(t *testing.T, deps service.Deps) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())

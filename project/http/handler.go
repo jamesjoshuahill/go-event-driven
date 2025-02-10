@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"tickets/command"
 	"tickets/entity"
-	"tickets/event"
+	"tickets/message/command"
+	"tickets/message/event"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/google/uuid"

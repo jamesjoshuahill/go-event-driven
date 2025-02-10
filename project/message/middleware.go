@@ -1,12 +1,29 @@
 package message
 
 import (
+	"time"
+
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
+	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/sirupsen/logrus"
 )
+
+func addMiddlewares(router *message.Router, logger watermill.LoggerAdapter) {
+	router.AddMiddleware(correlationIDMiddleware)
+	router.AddMiddleware(loggerMiddleware)
+	router.AddMiddleware(handlerLogMiddleware)
+	router.AddMiddleware(middleware.Retry{
+		MaxRetries:      10,
+		InitialInterval: time.Millisecond * 100,
+		MaxInterval:     time.Second,
+		Multiplier:      2,
+		Logger:          logger,
+	}.Middleware)
+	router.AddMiddleware(skipInvalidEventsMiddleware)
+}
 
 func correlationIDMiddleware(next message.HandlerFunc) message.HandlerFunc {
 	return func(msg *message.Message) ([]*message.Message, error) {

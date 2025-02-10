@@ -18,15 +18,15 @@ func TestComponent(t *testing.T) {
 	ticketGenerator := &MockTicketGenerator{}
 	ticketRefunder := &MockTicketRefunder{}
 
-	deps := service.ServiceDeps{
-		DB:                  db,
-		Logger:              watermill.NewStdLogger(false, false),
-		RedisClient:         redisClient,
-		DeadNationBooker:    deadNationBooker,
-		ReceiptsClient:      receiptsClient,
-		SpreadsheetAppender: spreadsheetAppender,
-		TicketGenerator:     ticketGenerator,
-		TicketRefunder:      ticketRefunder,
+	deps := service.Deps{
+		DB:                 db,
+		Logger:             watermill.NewStdLogger(false, false),
+		RedisClient:        redisClient,
+		DeadNationBooker:   deadNationBooker,
+		ReceiptsClient:     receiptsClient,
+		SpreadsheetsClient: spreadsheetAppender,
+		FilesClient:        ticketGenerator,
+		PaymentsClient:     ticketRefunder,
 	}
 	startService(t, deps)
 

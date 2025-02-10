@@ -8,6 +8,8 @@ import (
 
 	"tickets/http"
 	"tickets/message"
+	"tickets/message/command"
+	"tickets/message/event"
 	"tickets/postgres"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
@@ -21,15 +23,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type ServiceDeps struct {
-	DB                  *sqlx.DB
-	Logger              watermill.LoggerAdapter
-	RedisClient         *redis.Client
-	DeadNationBooker    message.DeadNationBooker
-	TicketGenerator     message.TicketGenerator
-	TicketRefunder      message.PaymentRefunder
-	ReceiptsClient      message.ReceiptsClient
-	SpreadsheetAppender message.SpreadsheetAppender
+type ReceiptsClient interface {
+	command.ReceiptsClient
+	event.ReceiptsClient
+}
+
+type Deps struct {
+	DB                 *sqlx.DB
+	DeadNationBooker   event.DeadNationBooker
+	Logger             watermill.LoggerAdapter
+	PaymentsClient     command.PaymentsClient
+	ReceiptsClient     ReceiptsClient
+	RedisClient        *redis.Client
+	SpreadsheetsClient event.SpreadsheetAppender
+	FilesClient        event.TicketGenerator
 }
 
 type Service struct {
@@ -39,7 +46,7 @@ type Service struct {
 	httpRouter   *echo.Echo
 }
 
-func New(deps ServiceDeps) (*Service, error) {
+func New(deps Deps) (*Service, error) {
 	publisher, err := redisstream.NewPublisher(redisstream.PublisherConfig{
 		Client: deps.RedisClient,
 	}, deps.Logger)
@@ -78,18 +85,13 @@ func New(deps ServiceDeps) (*Service, error) {
 	showRepo := postgres.NewShowRepo(deps.DB)
 	ticketRepo := postgres.NewTicketRepo(deps.DB)
 
-	msgRouter, err := message.NewRouter(message.RouterDeps{
-		DeadNationBooker:    deps.DeadNationBooker,
-		Logger:              deps.Logger,
-		Publisher:           eventBus,
-		ReceiptsClient:      deps.ReceiptsClient,
-		RedisClient:         deps.RedisClient,
-		ShowRepo:            showRepo,
-		SpreadsheetAppender: deps.SpreadsheetAppender,
-		TicketGenerator:     deps.TicketGenerator,
-		PaymentRefunder:     deps.TicketRefunder,
-		TicketRepo:          ticketRepo,
-	})
+	cmdProcessorConfig := command.NewProcessorConfig(deps.Logger, deps.RedisClient)
+	cmdHandler := command.NewHandler(deps.PaymentsClient, deps.ReceiptsClient)
+
+	eventProcessorConfig := event.NewProcessorConfig(deps.Logger, deps.RedisClient)
+	eventHandler := event.NewHandler(deps.DeadNationBooker, eventBus, deps.ReceiptsClient, showRepo, deps.SpreadsheetsClient, deps.FilesClient, ticketRepo)
+
+	msgRouter, err := message.NewRouter(cmdHandler, cmdProcessorConfig, eventHandler, eventProcessorConfig, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating message router: %w", err)
 	}

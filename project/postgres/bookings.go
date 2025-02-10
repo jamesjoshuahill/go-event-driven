@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
 	"tickets/entity"
-	"tickets/event"
 	"tickets/message"
+	"tickets/message/event"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
