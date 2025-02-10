@@ -3,6 +3,8 @@ package message
 import (
 	"context"
 	"fmt"
+
+	"tickets/command"
 	"tickets/entity"
 	"tickets/event"
 )
@@ -19,8 +21,9 @@ type Publisher interface {
 	Publish(ctx context.Context, event any) error
 }
 
-type ReceiptIssuer interface {
+type ReceiptsClient interface {
 	IssueReceipt(ctx context.Context, idempotencyKey, ticketID string, price entity.Money) error
+	VoidReceipt(ctx context.Context, idempotencyKey, ticketID string) error
 }
 
 type SpreadsheetAppender interface {
@@ -29,6 +32,10 @@ type SpreadsheetAppender interface {
 
 type TicketGenerator interface {
 	GenerateTicket(ctx context.Context, ticketID string, price entity.Money) (string, error)
+}
+
+type PaymentRefunder interface {
+	RefundPayment(ctx context.Context, idempotencyKey string, ticketID string) error
 }
 
 type TicketRepo interface {
@@ -57,7 +64,7 @@ func handleCreateDeadNationBooking(r ShowRepo, b DeadNationBooker) func(ctx cont
 	}
 }
 
-func handleIssueReceipt(r ReceiptIssuer) func(ctx context.Context, e *event.TicketBookingConfirmed) error {
+func handleIssueReceipt(r ReceiptsClient) func(ctx context.Context, e *event.TicketBookingConfirmed) error {
 	return func(ctx context.Context, e *event.TicketBookingConfirmed) error {
 		currency := e.Price.Currency
 		if currency == "" {
@@ -135,6 +142,20 @@ func handlePrintTicket(g TicketGenerator, p Publisher) func(context.Context, *ev
 
 		if err := p.Publish(ctx, ticketPrinted); err != nil {
 			return fmt.Errorf("publishing ticket printed event: %w", err)
+		}
+
+		return nil
+	}
+}
+
+func handleRefundTicket(p PaymentRefunder, r ReceiptsClient) func(ctx context.Context, cmd *command.RefundTicket) error {
+	return func(ctx context.Context, cmd *command.RefundTicket) error {
+		if err := p.RefundPayment(ctx, cmd.Header.IdempotencyKey, cmd.TicketID); err != nil {
+			return fmt.Errorf("refunding payment: %w", err)
+		}
+
+		if err := r.VoidReceipt(ctx, cmd.Header.IdempotencyKey, cmd.TicketID); err != nil {
+			return fmt.Errorf("voiding ticket receipt: %w", err)
 		}
 
 		return nil

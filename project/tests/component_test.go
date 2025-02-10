@@ -2,6 +2,7 @@ package tests_test
 
 import (
 	"testing"
+
 	"tickets/service"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -12,18 +13,20 @@ func TestComponent(t *testing.T) {
 	db := setupDB(t)
 	redisClient := setupRedis(t)
 	deadNationBooker := &MockDeadNationBooker{}
-	receiptIssuer := &MockReceiptIssuer{}
+	receiptsClient := &MockReceiptsClient{}
 	spreadsheetAppender := &MockSpreadsheetAppender{}
 	ticketGenerator := &MockTicketGenerator{}
+	ticketRefunder := &MockTicketRefunder{}
 
 	deps := service.ServiceDeps{
 		DB:                  db,
 		Logger:              watermill.NewStdLogger(false, false),
 		RedisClient:         redisClient,
 		DeadNationBooker:    deadNationBooker,
-		ReceiptIssuer:       receiptIssuer,
+		ReceiptsClient:      receiptsClient,
 		SpreadsheetAppender: spreadsheetAppender,
 		TicketGenerator:     ticketGenerator,
+		TicketRefunder:      ticketRefunder,
 	}
 	startService(t, deps)
 
@@ -47,7 +50,7 @@ func TestComponent(t *testing.T) {
 		sendTicketsStatus(t, req, idempotencyKey)
 		sendTicketsStatus(t, req, idempotencyKey)
 		sendTicketsStatus(t, req, idempotencyKey)
-		assertReceiptForTicketIssued(t, receiptIssuer, ticket)
+		assertReceiptForTicketIssued(t, receiptsClient, ticket)
 		assertTicketToPrintRowForTicketAppended(t, spreadsheetAppender, ticket)
 		assertStoredTicketInDB(t, db, ticket)
 		assertTicketGenerated(t, ticketGenerator, ticket)

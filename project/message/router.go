@@ -15,8 +15,9 @@ import (
 type RouterDeps struct {
 	DeadNationBooker    DeadNationBooker
 	Logger              watermill.LoggerAdapter
+	PaymentRefunder     PaymentRefunder
 	Publisher           Publisher
-	ReceiptIssuer       ReceiptIssuer
+	ReceiptsClient      ReceiptsClient
 	RedisClient         *redis.Client
 	ShowRepo            ShowRepo
 	SpreadsheetAppender SpreadsheetAppender
@@ -46,7 +47,7 @@ func NewRouter(deps RouterDeps) (*Router, error) {
 	}.Middleware)
 	router.AddMiddleware(skipInvalidEventsMiddleware)
 
-	config := cqrs.EventProcessorConfig{
+	eventProcessorConfig := cqrs.EventProcessorConfig{
 		SubscriberConstructor: func(params cqrs.EventProcessorSubscriberConstructorParams) (message.Subscriber, error) {
 			return redisstream.NewSubscriber(redisstream.SubscriberConfig{
 				Client:        deps.RedisClient,
@@ -62,14 +63,14 @@ func NewRouter(deps RouterDeps) (*Router, error) {
 		Logger: deps.Logger,
 	}
 
-	ep, err := cqrs.NewEventProcessorWithConfig(router, config)
+	eventProcessor, err := cqrs.NewEventProcessorWithConfig(router, eventProcessorConfig)
 	if err != nil {
 		return nil, fmt.Errorf("creating event processor: %w", err)
 	}
 
-	handlers := []cqrs.EventHandler{
+	eventHandlers := []cqrs.EventHandler{
 		cqrs.NewEventHandler("create-dead-nation-booking", handleCreateDeadNationBooking(deps.ShowRepo, deps.DeadNationBooker)),
-		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(deps.ReceiptIssuer)),
+		cqrs.NewEventHandler("issue-receipt", handleIssueReceipt(deps.ReceiptsClient)),
 		cqrs.NewEventHandler("append-to-tracker-confirmed", handleAppendToTrackerConfirmed(deps.SpreadsheetAppender)),
 		cqrs.NewEventHandler("append-to-tracker-canceled", handleAppendToTrackerCanceled(deps.SpreadsheetAppender)),
 		cqrs.NewEventHandler("store-confirmed-in-db", handleStoreInDB(deps.TicketRepo)),
@@ -77,8 +78,37 @@ func NewRouter(deps RouterDeps) (*Router, error) {
 		cqrs.NewEventHandler("print-ticket", handlePrintTicket(deps.TicketGenerator, deps.Publisher)),
 	}
 
-	if err := ep.AddHandlers(handlers...); err != nil {
-		return nil, fmt.Errorf("adding handlers: %w", err)
+	if err := eventProcessor.AddHandlers(eventHandlers...); err != nil {
+		return nil, fmt.Errorf("adding event handlers: %w", err)
+	}
+
+	cmdProcessorConfig := cqrs.CommandProcessorConfig{
+		SubscriberConstructor: func(params cqrs.CommandProcessorSubscriberConstructorParams) (message.Subscriber, error) {
+			return redisstream.NewSubscriber(redisstream.SubscriberConfig{
+				Client:        deps.RedisClient,
+				ConsumerGroup: "svc-users." + params.HandlerName,
+			}, deps.Logger)
+		},
+		GenerateSubscribeTopic: func(params cqrs.CommandProcessorGenerateSubscribeTopicParams) (string, error) {
+			return params.CommandName, nil
+		},
+		Marshaler: cqrs.JSONMarshaler{
+			GenerateName: cqrs.StructName,
+		},
+		Logger: deps.Logger,
+	}
+
+	cmdProcessor, err := cqrs.NewCommandProcessorWithConfig(router, cmdProcessorConfig)
+	if err != nil {
+		return nil, fmt.Errorf("creating command processor: %w", err)
+	}
+
+	cmdHandlers := []cqrs.CommandHandler{
+		cqrs.NewCommandHandler("refund-ticket", handleRefundTicket(deps.PaymentRefunder, deps.ReceiptsClient)),
+	}
+
+	if err := cmdProcessor.AddHandlers(cmdHandlers...); err != nil {
+		return nil, fmt.Errorf("adding command handlers: %w", err)
 	}
 
 	return &Router{router}, nil

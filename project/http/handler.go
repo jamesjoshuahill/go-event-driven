@@ -5,16 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
+
 	"tickets/command"
 	"tickets/entity"
 	"tickets/event"
-	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 )
+
+const headerKeyIdempotencyKey = "Idempotency-Key"
 
 type createTicketsStatusRequest struct {
 	Tickets []ticketStatus `json:"tickets"`
@@ -228,12 +231,10 @@ func (h handler) CreateBooking(c echo.Context) error {
 }
 
 func (h handler) RefundTicket(c echo.Context) error {
-	cmd := command.RefundTicket{
-		TicketID: c.Param("ticket_id"),
-	}
+	idempotencyKey := getOrGenerateIdempotencyKey(c)
+	cmd := command.NewRefundTicket(c.Param("ticket_id"), idempotencyKey)
 
-	err := h.commandSender.Send(c.Request().Context(), cmd)
-	if err != nil {
+	if err := h.commandSender.Send(c.Request().Context(), cmd); err != nil {
 		return &echo.HTTPError{
 			Code:     http.StatusInternalServerError,
 			Message:  http.StatusText(http.StatusInternalServerError),
@@ -245,13 +246,22 @@ func (h handler) RefundTicket(c echo.Context) error {
 }
 
 func getIdempotencyKey(c echo.Context) (string, error) {
-	idempotencyKey := c.Request().Header.Get("Idempotency-Key")
+	idempotencyKey := c.Request().Header.Get(headerKeyIdempotencyKey)
 	if idempotencyKey == "" {
 		return "", &echo.HTTPError{
 			Code:    http.StatusBadRequest,
-			Message: "missing required header Idempotency-Key",
+			Message: fmt.Sprintf("missing required header %s", headerKeyIdempotencyKey),
 		}
 	}
 
 	return idempotencyKey, nil
+}
+
+func getOrGenerateIdempotencyKey(c echo.Context) string {
+	idempotencyKey := c.Request().Header.Get(headerKeyIdempotencyKey)
+	if idempotencyKey == "" {
+		idempotencyKey = uuid.NewString()
+	}
+
+	return idempotencyKey
 }

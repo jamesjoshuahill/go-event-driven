@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"tickets/service"
 	"time"
+
+	"tickets/service"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -126,13 +127,13 @@ func sendTicketsStatus(t *testing.T, req TicketsStatusRequest, idempotencyKey st
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func assertReceiptForTicketIssued(t *testing.T, receiptIssuer *MockReceiptIssuer, ticket TicketStatus) {
+func assertReceiptForTicketIssued(t *testing.T, receiptIssuer *MockReceiptsClient, ticket TicketStatus) {
 	t.Helper()
 
 	assert.EventuallyWithT(
 		t,
 		func(c *assert.CollectT) {
-			req, ok := receiptIssuer.RequestForTicketID(ticket.TicketID)
+			req, ok := receiptIssuer.IssueRequestForTicketID(ticket.TicketID)
 			require.True(c, ok)
 
 			assert.Equal(t, ticket.TicketID, req.ticketID)

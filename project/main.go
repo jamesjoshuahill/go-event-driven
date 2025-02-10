@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+
 	"tickets/clients"
 	"tickets/service"
 
@@ -55,7 +56,8 @@ func run(logger watermill.LoggerAdapter) error {
 
 	deadNationBooker := clients.NewDeadNationClient(gatewayClient)
 	ticketGenerator := clients.NewFilesClient(gatewayClient)
-	receiptIssuer := clients.NewReceiptsClient(gatewayClient)
+	ticketRefunder := clients.NewPaymentsClient(gatewayClient)
+	receiptsClient := clients.NewReceiptsClient(gatewayClient)
 	spreadsheetAppender := clients.NewSpreadsheetsClient(gatewayClient)
 
 	svc, err := service.New(service.ServiceDeps{
@@ -64,7 +66,8 @@ func run(logger watermill.LoggerAdapter) error {
 		RedisClient:         redisClient,
 		DeadNationBooker:    deadNationBooker,
 		TicketGenerator:     ticketGenerator,
-		ReceiptIssuer:       receiptIssuer,
+		TicketRefunder:      ticketRefunder,
+		ReceiptsClient:      receiptsClient,
 		SpreadsheetAppender: spreadsheetAppender,
 	})
 	if err != nil {

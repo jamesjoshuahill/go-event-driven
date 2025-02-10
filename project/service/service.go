@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
+
 	"tickets/http"
 	"tickets/message"
 	"tickets/postgres"
-	"time"
 
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
@@ -26,7 +27,8 @@ type ServiceDeps struct {
 	RedisClient         *redis.Client
 	DeadNationBooker    message.DeadNationBooker
 	TicketGenerator     message.TicketGenerator
-	ReceiptIssuer       message.ReceiptIssuer
+	TicketRefunder      message.PaymentRefunder
+	ReceiptsClient      message.ReceiptsClient
 	SpreadsheetAppender message.SpreadsheetAppender
 }
 
@@ -80,11 +82,12 @@ func New(deps ServiceDeps) (*Service, error) {
 		DeadNationBooker:    deps.DeadNationBooker,
 		Logger:              deps.Logger,
 		Publisher:           eventBus,
-		ReceiptIssuer:       deps.ReceiptIssuer,
+		ReceiptsClient:      deps.ReceiptsClient,
 		RedisClient:         deps.RedisClient,
 		ShowRepo:            showRepo,
 		SpreadsheetAppender: deps.SpreadsheetAppender,
 		TicketGenerator:     deps.TicketGenerator,
+		PaymentRefunder:     deps.TicketRefunder,
 		TicketRepo:          ticketRepo,
 	})
 	if err != nil {

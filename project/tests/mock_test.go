@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
 	"tickets/entity"
 )
 
@@ -45,7 +46,7 @@ func (m *MockTicketGenerator) RequestForTicketID(ticketID string) (GenerateTicke
 	return match, ok
 }
 
-type MockReceiptIssuer struct {
+type MockReceiptsClient struct {
 	lock     sync.Mutex
 	Requests []IssueReceiptRequest
 }
@@ -56,7 +57,7 @@ type IssueReceiptRequest struct {
 	price          entity.Money
 }
 
-func (m *MockReceiptIssuer) IssueReceipt(_ context.Context, idempotencyKey, ticketID string, price entity.Money) error {
+func (m *MockReceiptsClient) IssueReceipt(_ context.Context, idempotencyKey, ticketID string, price entity.Money) error {
 	m.lock.Lock()
 	m.Requests = append(m.Requests, IssueReceiptRequest{
 		idempotencyKey: idempotencyKey,
@@ -68,7 +69,11 @@ func (m *MockReceiptIssuer) IssueReceipt(_ context.Context, idempotencyKey, tick
 	return nil
 }
 
-func (m *MockReceiptIssuer) RequestForTicketID(ticketID string) (IssueReceiptRequest, bool) {
+func (m *MockReceiptsClient) VoidReceipt(ctx context.Context, idempotencyKey, ticketID string) error {
+	return nil
+}
+
+func (m *MockReceiptsClient) IssueRequestForTicketID(ticketID string) (IssueReceiptRequest, bool) {
 	m.lock.Lock()
 	var match IssueReceiptRequest
 	var ok bool
@@ -119,5 +124,11 @@ func (m *MockSpreadsheetAppender) RequestFor(spreadsheetName, ticketID string) (
 type MockDeadNationBooker struct{}
 
 func (m *MockDeadNationBooker) CreateBooking(ctx context.Context, deadNationID string, booking entity.Booking) error {
+	return nil
+}
+
+type MockTicketRefunder struct{}
+
+func (m *MockTicketRefunder) RefundPayment(ctx context.Context, idempotencyKey string, ticketID string) error {
 	return nil
 }
