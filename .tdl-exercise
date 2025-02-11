@@ -1,3 +1,3 @@
-exercise_id = "cc7047b9-4d4b-413e-abbc-cbe29a8cba9d"
-directory = "13-read-models/01-read-models"
-is_text_only = true
+exercise_id = "4c08c77a-c42c-4092-890d-7f27eeb1c774"
+directory = "13-read-models/02-building-read-models"
+is_text_only = false
