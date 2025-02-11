@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"tickets/http"
 	"tickets/message"
 	"tickets/message/command"
@@ -55,20 +54,6 @@ func New(deps Deps) (*Service, error) {
 	}
 	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
 
-	// Workaround for testing issue in 12.4
-	newEventBus, err := cqrs.NewEventBusWithConfig(publisher, cqrs.EventBusConfig{
-		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
-			return "events." + params.EventName, nil
-		},
-		Marshaler: cqrs.JSONMarshaler{
-			GenerateName: cqrs.StructName,
-		},
-		Logger: deps.Logger,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("creating new event bus: %w", err)
-	}
-
 	eventBus, err := event.NewBus(decoratedPublisher, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating event bus: %w", err)
@@ -100,14 +85,13 @@ func New(deps Deps) (*Service, error) {
 	}
 
 	httpRouter := http.NewRouter(http.RouterDeps{
-		BookingRepo:       bookingRepo,
-		CommandSender:     commandBus,
-		DB:                deps.DB,
-		EventPublisher:    eventBus,
-		NewEventPublisher: newEventBus,
-		Logger:            deps.Logger,
-		ShowRepo:          showRepo,
-		TicketRepo:        ticketRepo,
+		BookingRepo:    bookingRepo,
+		CommandSender:  commandBus,
+		DB:             deps.DB,
+		EventPublisher: eventBus,
+		Logger:         deps.Logger,
+		ShowRepo:       showRepo,
+		TicketRepo:     ticketRepo,
 	})
 
 	return &Service{

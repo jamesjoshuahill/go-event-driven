@@ -8,8 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Workaround for testing issue in 12.4
-const topicPrefix = ""
+const topicPrefix = "events."
 
 func NewBus(publisher message.Publisher, logger watermill.LoggerAdapter) (*cqrs.EventBus, error) {
 	return cqrs.NewEventBusWithConfig(publisher, cqrs.EventBusConfig{
