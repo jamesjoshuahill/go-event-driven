@@ -246,7 +246,7 @@ func assertTicketPrintedEventPublished(t *testing.T, redisClient *redis.Client, 
 		t,
 		func(c *assert.CollectT) {
 			res, err := redisClient.XRead(context.Background(), &redis.XReadArgs{
-				Streams: []string{"TicketPrinted", "0"},
+				Streams: []string{"events.TicketPrinted", "0"},
 				Count:   100,
 			}).Result()
 			require.NoError(c, err)

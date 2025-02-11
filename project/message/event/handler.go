@@ -4,11 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
-	"github.com/ThreeDotsLabs/watermill/components/cqrs"
-	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/redis/go-redis/v9"
 	"tickets/entity"
 )
 
@@ -39,24 +34,6 @@ type TicketGenerator interface {
 type TicketRepo interface {
 	Add(ctx context.Context, ticket entity.Ticket) error
 	Delete(ctx context.Context, ticketID string) error
-}
-
-func NewProcessorConfig(logger watermill.LoggerAdapter, redisClient *redis.Client) cqrs.EventProcessorConfig {
-	return cqrs.EventProcessorConfig{
-		SubscriberConstructor: func(params cqrs.EventProcessorSubscriberConstructorParams) (message.Subscriber, error) {
-			return redisstream.NewSubscriber(redisstream.SubscriberConfig{
-				Client:        redisClient,
-				ConsumerGroup: "svc-users." + params.HandlerName,
-			}, logger)
-		},
-		GenerateSubscribeTopic: func(params cqrs.EventProcessorGenerateSubscribeTopicParams) (string, error) {
-			return params.EventName, nil
-		},
-		Marshaler: cqrs.JSONMarshaler{
-			GenerateName: cqrs.StructName,
-		},
-		Logger: logger,
-	}
 }
 
 type Handler struct {

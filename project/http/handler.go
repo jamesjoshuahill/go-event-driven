@@ -84,13 +84,14 @@ type notEnoughTicketsError interface {
 }
 
 type handler struct {
-	bookingRepo    BookingRepo
-	commandSender  CommandSender
-	db             *sqlx.DB
-	eventPublisher EventPublisher
-	logger         watermill.LoggerAdapter
-	showRepo       ShowRepo
-	ticketRepo     TicketRepo
+	bookingRepo       BookingRepo
+	commandSender     CommandSender
+	db                *sqlx.DB
+	eventPublisher    EventPublisher
+	newEventPublisher EventPublisher
+	logger            watermill.LoggerAdapter
+	showRepo          ShowRepo
+	ticketRepo        TicketRepo
 }
 
 func (h handler) CreateTicketStatus(c echo.Context) error {
@@ -132,7 +133,15 @@ func (h handler) CreateTicketStatus(c echo.Context) error {
 			return &echo.HTTPError{
 				Code:     http.StatusInternalServerError,
 				Message:  http.StatusText(http.StatusInternalServerError),
-				Internal: fmt.Errorf("publishing event: %w", err),
+				Internal: fmt.Errorf("publishing event to old topic: %w", err),
+			}
+		}
+
+		if err := h.newEventPublisher.Publish(c.Request().Context(), e); err != nil {
+			return &echo.HTTPError{
+				Code:     http.StatusInternalServerError,
+				Message:  http.StatusText(http.StatusInternalServerError),
+				Internal: fmt.Errorf("publishing event to new topic: %w", err),
 			}
 		}
 	}

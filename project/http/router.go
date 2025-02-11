@@ -12,13 +12,14 @@ import (
 var ErrServerClosed = http.ErrServerClosed
 
 type RouterDeps struct {
-	BookingRepo    BookingRepo
-	CommandSender  CommandSender
-	DB             *sqlx.DB
-	EventPublisher EventPublisher
-	Logger         watermill.LoggerAdapter
-	ShowRepo       ShowRepo
-	TicketRepo     TicketRepo
+	BookingRepo       BookingRepo
+	CommandSender     CommandSender
+	DB                *sqlx.DB
+	EventPublisher    EventPublisher
+	NewEventPublisher EventPublisher
+	Logger            watermill.LoggerAdapter
+	ShowRepo          ShowRepo
+	TicketRepo        TicketRepo
 }
 
 func NewRouter(deps RouterDeps) *echo.Echo {
@@ -29,13 +30,14 @@ func NewRouter(deps RouterDeps) *echo.Echo {
 	})
 
 	handler := handler{
-		bookingRepo:    deps.BookingRepo,
-		commandSender:  deps.CommandSender,
-		db:             deps.DB,
-		eventPublisher: deps.EventPublisher,
-		logger:         deps.Logger,
-		showRepo:       deps.ShowRepo,
-		ticketRepo:     deps.TicketRepo,
+		bookingRepo:       deps.BookingRepo,
+		commandSender:     deps.CommandSender,
+		db:                deps.DB,
+		eventPublisher:    deps.EventPublisher,
+		newEventPublisher: deps.NewEventPublisher,
+		logger:            deps.Logger,
+		showRepo:          deps.ShowRepo,
+		ticketRepo:        deps.TicketRepo,
 	}
 
 	server.POST("/shows", handler.CreateShow)

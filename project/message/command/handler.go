@@ -3,12 +3,6 @@ package command
 import (
 	"context"
 	"fmt"
-
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
-	"github.com/ThreeDotsLabs/watermill/components/cqrs"
-	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/redis/go-redis/v9"
 )
 
 type PaymentsClient interface {
@@ -17,24 +11,6 @@ type PaymentsClient interface {
 
 type ReceiptsClient interface {
 	VoidReceipt(ctx context.Context, idempotencyKey, ticketID string) error
-}
-
-func NewProcessorConfig(logger watermill.LoggerAdapter, redisClient *redis.Client) cqrs.CommandProcessorConfig {
-	return cqrs.CommandProcessorConfig{
-		SubscriberConstructor: func(params cqrs.CommandProcessorSubscriberConstructorParams) (message.Subscriber, error) {
-			return redisstream.NewSubscriber(redisstream.SubscriberConfig{
-				Client:        redisClient,
-				ConsumerGroup: "svc-users." + params.HandlerName,
-			}, logger)
-		},
-		GenerateSubscribeTopic: func(params cqrs.CommandProcessorGenerateSubscribeTopicParams) (string, error) {
-			return params.CommandName, nil
-		},
-		Marshaler: cqrs.JSONMarshaler{
-			GenerateName: cqrs.StructName,
-		},
-		Logger: logger,
-	}
 }
 
 type Handler struct {

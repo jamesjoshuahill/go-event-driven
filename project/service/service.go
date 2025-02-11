@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"tickets/http"
 	"tickets/message"
 	"tickets/message/command"
@@ -15,7 +16,6 @@ import (
 	"github.com/ThreeDotsLabs/go-event-driven/common/log"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
-	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
@@ -55,9 +55,10 @@ func New(deps Deps) (*Service, error) {
 	}
 	decoratedPublisher := log.CorrelationPublisherDecorator{Publisher: publisher}
 
-	eventBus, err := cqrs.NewEventBusWithConfig(decoratedPublisher, cqrs.EventBusConfig{
+	// Workaround for testing issue in 12.4
+	newEventBus, err := cqrs.NewEventBusWithConfig(publisher, cqrs.EventBusConfig{
 		GeneratePublishTopic: func(params cqrs.GenerateEventPublishTopicParams) (string, error) {
-			return params.EventName, nil
+			return "events." + params.EventName, nil
 		},
 		Marshaler: cqrs.JSONMarshaler{
 			GenerateName: cqrs.StructName,
@@ -65,18 +66,15 @@ func New(deps Deps) (*Service, error) {
 		Logger: deps.Logger,
 	})
 	if err != nil {
+		return nil, fmt.Errorf("creating new event bus: %w", err)
+	}
+
+	eventBus, err := event.NewBus(decoratedPublisher, deps.Logger)
+	if err != nil {
 		return nil, fmt.Errorf("creating event bus: %w", err)
 	}
 
-	commandBus, err := cqrs.NewCommandBusWithConfig(decoratedPublisher, cqrs.CommandBusConfig{
-		GeneratePublishTopic: func(params cqrs.CommandBusGeneratePublishTopicParams) (string, error) {
-			return params.CommandName, nil
-		},
-		Marshaler: cqrs.JSONMarshaler{
-			GenerateName: cqrs.StructName,
-		},
-		Logger: deps.Logger,
-	})
+	commandBus, err := command.NewBus(decoratedPublisher, deps.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating command bus: %w", err)
 	}
@@ -102,13 +100,14 @@ func New(deps Deps) (*Service, error) {
 	}
 
 	httpRouter := http.NewRouter(http.RouterDeps{
-		BookingRepo:    bookingRepo,
-		CommandSender:  commandBus,
-		DB:             deps.DB,
-		EventPublisher: eventBus,
-		Logger:         deps.Logger,
-		ShowRepo:       showRepo,
-		TicketRepo:     ticketRepo,
+		BookingRepo:       bookingRepo,
+		CommandSender:     commandBus,
+		DB:                deps.DB,
+		EventPublisher:    eventBus,
+		NewEventPublisher: newEventBus,
+		Logger:            deps.Logger,
+		ShowRepo:          showRepo,
+		TicketRepo:        ticketRepo,
 	})
 
 	return &Service{
